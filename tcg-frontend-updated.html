@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="TCG Tournament Platform">
+    <title>TCG Tournament Platform</title>
+    <link rel="stylesheet" href="tcg-frontend.css">
+</head>
+<body>
+    <header>
+        <div class="header-container">
+            <div class="logo">🎴 TCG Tournament</div>
+            <nav id="nav-menu">
+                <button onclick="switchSection('dashboard')" id="dashboard-btn" style="display:none;">Dashboard</button>
+                <button onclick="switchSection('create')" id="create-btn" style="display:none;">Create</button>
+                <button onclick="switchSection('decklists')" id="decklists-btn" style="display:none;">Decklists</button>
+                <button onclick="viewUserProfile(getCurrentUserId())" id="profile-btn" style="display:none;">My Profile</button>
+                <button onclick="toggleNotificationsPanel()" id="notifications-btn" style="display:none;">Notifications</button>
+                <span class="user-info" id="user-info" style="display:none;"></span>
+                <button onclick="logout()" id="logout-btn" style="display:none;">Logout</button>
+            </nav>
+            <button class="theme-toggle" id="theme-toggle" title="Toggle dark mode">🌙</button>
+            <div class="hamburger" id="hamburger-menu">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Landing Section -->
+        <section id="landing" class="active">
+            <div class="landing-hero">
+                <h1>Run Better TCG Tournaments</h1>
+                <p>Create events, track pairings, and follow standings for Yu-Gi-Oh! communities in one place.</p>
+                <div class="landing-actions">
+                    <button class="btn" onclick="goToAuth('signup')">Create an Account</button>
+                    <button class="btn secondary" onclick="goToAuth('login')">Login</button>
+                </div>
+            </div>
+            <div class="landing-preview">
+                <h2>Recent Tournaments</h2>
+                <div class="tournament-list" id="landing-tournament-list">
+                    <div class="empty-state">Loading tournaments...</div>
+                </div>
+            </div>
+
+            <div class="landing-preview">
+                <h2>Recent Decklists</h2>
+                <div style="display: grid; grid-template-columns: 1.3fr 0.7fr; gap: 0.6rem; margin-bottom: 0.7rem;">
+                    <input type="text" id="landing-decklist-search" placeholder="Search decklists by name or creator">
+                    <select id="landing-decklist-game-filter">
+                        <option value="all">All Formats</option>
+                        <option value="ygo-tcg">Yu-Gi-Oh! TCG</option>
+                        <option value="master-duel">Master Duel</option>
+                        <option value="duel-links">Duel Links</option>
+                    </select>
+                </div>
+                <div class="tournament-list" id="landing-decklist-list">
+                    <div class="empty-state">Loading decklists...</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Auth Section -->
+        <section id="auth">
+            <div class="auth-form">
+                <h1 style="text-align: center; margin-bottom: 2rem;">TCG Tournament Platform</h1>
+                <div id="auth-container">
+                    <div id="login-form">
+                        <h2 style="text-align: center; margin-bottom: 1.5rem;">Login</h2>
+                        <div class="form-group">
+                            <label for="login-email">Email</label>
+                            <input type="email" id="login-email" placeholder="your@email.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="login-password">Password</label>
+                            <input type="password" id="login-password" placeholder="••••••••" required>
+                        </div>
+                        <button class="btn" style="width: 100%;" onclick="login()">Login</button>
+                        <p style="text-align: center; margin-top: 1rem;">
+                            Don't have an account? 
+                            <button onclick="showSignup()" style="background:none; border:none; color:var(--primary-color); cursor:pointer; text-decoration:underline;">Sign up</button>
+                        </p>
+                        <div id="login-error" class="error"></div>
+                    </div>
+
+                    <div id="signup-form" style="display: none;">
+                        <h2 style="text-align: center; margin-bottom: 1.5rem;">Sign Up</h2>
+                        <div class="form-group">
+                            <label for="signup-username">Username</label>
+                            <input type="text" id="signup-username" placeholder="Your username" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="signup-email">Email</label>
+                            <input type="email" id="signup-email" placeholder="your@email.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="signup-password">Password</label>
+                            <input type="password" id="signup-password" placeholder="••••••••" required>
+                        </div>
+                        <button class="btn" style="width: 100%;" onclick="signup()">Sign Up</button>
+                        <p style="text-align: center; margin-top: 1rem;">
+                            Already have an account? 
+                            <button onclick="showLogin()" style="background:none; border:none; color:var(--primary-color); cursor:pointer; text-decoration:underline;">Login</button>
+                        </p>
+                        <div id="signup-error" class="error"></div>
+                    </div>
+                </div>
+                <button class="btn secondary" style="width: 100%;" onclick="showLanding()">Back to Landing</button>
+            </div>
+        </section>
+
+        <!-- Dashboard Section -->
+        <section id="dashboard">
+            <h1>Tournament Dashboard</h1>
+            <div class="format-selector">
+                <button class="format-btn active" data-format="all">All Formats</button>
+                <button class="format-btn" data-format="ygo-tcg">Yu-Gi-Oh! TCG</button>
+                <button class="format-btn" data-format="master-duel">Master Duel</button>
+                <button class="format-btn" data-format="duel-links">Duel Links</button>
+            </div>
+
+            <h2>Active Tournaments</h2>
+            <div class="tournament-list" id="tournament-list">
+                <div class="empty-state">Loading tournaments...</div>
+            </div>
+
+            <div id="completed-tournaments-section">
+                <h2>Completed Tournaments</h2>
+                <div class="tournament-list" id="completed-tournament-list">
+                    <div class="empty-state">Loading completed tournaments...</div>
+                </div>
+            </div>
+
+            <button class="btn" onclick="switchSection('create')">+ Create Tournament</button>
+        </section>
+
+        <!-- Tournament Detail Section -->
+        <section id="tournament-detail">
+            <button class="btn secondary" onclick="goBack()" style="margin-bottom: 1.5rem;">← Back</button>
+            <div id="tournament-detail-content">
+                <div class="empty-state">Loading tournament details...</div>
+            </div>
+        </section>
+
+        <!-- Decklist Detail Section -->
+        <section id="decklist-detail">
+            <button class="btn secondary" onclick="goBack()" style="margin-bottom: 1.5rem;">← Back</button>
+            <div id="decklist-detail-content">
+                <div class="empty-state">Loading decklist...</div>
+            </div>
+        </section>
+
+        <!-- Create Tournament Section -->
+        <section id="create">
+            <h1>Create Tournament</h1>
+            <p style="margin-bottom: 1rem;">Creating as <button class="user-link" id="create-user-link" onclick="viewUserProfile(getCurrentUserId())"></button></p>
+            <div style="max-width: 600px; margin: 2rem auto;">
+                <form id="tournament-form">
+                    <div class="form-group">
+                        <label for="tournament-name">Tournament Name</label>
+                        <input type="text" id="tournament-name" placeholder="e.g., Weekly Yu-Gi-Oh! Locals" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tournament-game">Game Format</label>
+                        <select id="tournament-game" required>
+                            <option value="">Select game format</option>
+                            <option value="ygo-tcg">Yu-Gi-Oh! TCG</option>
+                            <option value="master-duel">Master Duel</option>
+                            <option value="duel-links">Duel Links</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tournament-format">Tournament Type</label>
+                        <select id="tournament-format" required>
+                            <option value="">Select tournament type</option>
+                            <option value="swiss">Swiss</option>
+                            <option value="single-elim">Single Elimination</option>
+                            <option value="double-elim">Double Elimination</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tournament-players">Max Players</label>
+                        <input type="number" id="tournament-players" min="4" max="256" value="16" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tournament-desc">Description (Optional)</label>
+                        <textarea id="tournament-desc" placeholder="Tournament rules and details..." rows="4"></textarea>
+                    </div>
+
+                    <button type="submit" class="btn">Create Tournament</button>
+                    <button type="button" class="btn secondary" onclick="switchSection('dashboard')">Cancel</button>
+                </form>
+            </div>
+        </section>
+
+        <!-- Decklists Section -->
+        <section id="decklists">
+            <h1>My Decklists</h1>
+            <p>Save decklists once, then submit one when you join tournaments.</p>
+
+            <div style="max-width: 900px; margin: 1.5rem auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+                <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem;">
+                    <h3 id="decklist-form-title">Create Decklist</h3>
+                    <form id="decklist-form">
+                        <div class="form-group">
+                            <label for="decklist-name">Decklist Name</label>
+                            <input type="text" id="decklist-name" placeholder="e.g., Blue-Eyes Control" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="decklist-game">Game Format</label>
+                            <select id="decklist-game" required>
+                                <option value="">Select game format</option>
+                                <option value="ygo-tcg">Yu-Gi-Oh! TCG</option>
+                                <option value="master-duel">Master Duel</option>
+                                <option value="duel-links">Duel Links</option>
+                            </select>
+                        </div>
+
+                        <div class="deck-builder-controls">
+                            <div class="form-group" style="margin-bottom: 0.75rem;">
+                                <label for="deck-card-name">Card Name</label>
+                                <input type="text" id="deck-card-name" placeholder="e.g., Dark Magician">
+                                <div id="deck-card-suggestions" class="card-suggestions" style="display: none;"></div>
+                            </div>
+
+                            <div class="form-group" style="margin-bottom: 0.75rem;">
+                                <label for="deck-card-section">Deck Section</label>
+                                <select id="deck-card-section">
+                                    <option value="main">Main Deck</option>
+                                    <option value="extra">Extra Deck</option>
+                                    <option value="side">Side Deck</option>
+                                </select>
+                            </div>
+
+                            <button type="button" class="btn" id="deck-add-card-btn" onclick="addCardToDeckBuilder()">+ Add Card</button>
+                        </div>
+
+                        <div id="deck-card-feedback" class="error" style="display: none;"></div>
+
+                        <div class="deck-builder-section">
+                            <h4>Main Deck (<span id="deck-count-main">0</span>)</h4>
+                            <div id="deck-builder-main" class="deck-card-list">
+                                <div class="empty-state">No cards added yet</div>
+                            </div>
+                        </div>
+
+                        <div class="deck-builder-section">
+                            <h4>Extra Deck (<span id="deck-count-extra">0</span>)</h4>
+                            <div id="deck-builder-extra" class="deck-card-list">
+                                <div class="empty-state">No cards added yet</div>
+                            </div>
+                        </div>
+
+                        <div class="deck-builder-section">
+                            <h4>Side Deck (<span id="deck-count-side">0</span>)</h4>
+                            <div id="deck-builder-side" class="deck-card-list">
+                                <div class="empty-state">No cards added yet</div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="decklist-notes">Notes (optional)</label>
+                            <textarea id="decklist-notes" rows="3" placeholder="Optional notes"></textarea>
+                        </div>
+
+                        <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: -0.25rem;">
+                            <input type="checkbox" id="decklist-public" checked style="width: auto;">
+                            <label for="decklist-public" style="margin: 0;">Make this decklist public (visible on landing page)</label>
+                        </div>
+
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
+                            <button type="button" class="btn secondary" style="margin: 0;" onclick="triggerYdkImport()">Import .ydk</button>
+                            <button type="button" class="btn secondary" style="margin: 0;" onclick="exportCurrentDeckAsYdk()">Export .ydk</button>
+                            <button type="button" class="btn secondary" style="margin: 0;" onclick="importDeckFromTextPrompt()">Import Text List</button>
+                        </div>
+                        <input type="file" id="decklist-ydk-file" accept=".ydk,text/plain" style="display:none;">
+
+                        <button type="submit" class="btn" id="decklist-submit-btn">Save Decklist</button>
+                        <button type="button" class="btn secondary" onclick="resetDecklistForm()">Clear</button>
+                    </form>
+                </div>
+
+                <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem;">
+                    <h3>Saved Decklists</h3>
+                    <div class="form-group" style="margin-bottom: 0.5rem;">
+                        <label for="decklist-visibility-filter">Filter by visibility</label>
+                        <select id="decklist-visibility-filter">
+                            <option value="all">All</option>
+                            <option value="public">Public</option>
+                            <option value="private">Private</option>
+                        </select>
+                    </div>
+                    <div class="tournament-list" id="decklist-list">
+                        <div class="empty-state">Loading decklists...</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- User Profile Section -->
+        <section id="user-profile">
+            <button class="btn secondary" onclick="goBack()" style="margin-bottom: 1.5rem;">← Back</button>
+            <div id="user-profile-content">
+                <div class="empty-state">Loading user profile...</div>
+            </div>
+        </section>
+
+        <div id="notifications-panel" style="display:none; position: fixed; top: 84px; right: 24px; width: 340px; max-width: calc(100vw - 32px); max-height: 70vh; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 10px; background: var(--card-bg); box-shadow: 0 6px 20px rgba(0,0,0,0.22); z-index: 300;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; padding:0.7rem 0.85rem; border-bottom:1px solid var(--border-color);">
+                <strong>Notifications</strong>
+                <button class="btn secondary" style="margin:0; padding:0.25rem 0.55rem;" onclick="clearNotifications()">Clear</button>
+            </div>
+            <div id="notifications-list" style="padding:0.65rem; display:flex; flex-direction:column; gap:0.5rem;">
+                <div class="empty-state" style="padding:1rem;">No notifications yet.</div>
+            </div>
+        </div>
+
+        <div id="notification-toast-stack" style="position: fixed; right: 20px; bottom: 20px; display:flex; flex-direction:column; gap:0.45rem; z-index: 320;"></div>
+    </main>
+
+    <footer>
+        <p>&copy; 2026 TCG Tournament Platform. Powered by Node.js + MongoDB.</p>
+    </footer>
+
+    <script src="http://localhost:5000/socket.io/socket.io.js"></script>
+    <script src="tcg-frontend.js"></script>
+</body>
+</html>

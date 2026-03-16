@@ -1,0 +1,786 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --primary-color: #0066cc;
+    --primary-hover: #0052a3;
+    --accent-color: #ffd700;
+    --dark-bg: #0f0f0f;
+    --light-bg: #f5f5f5;
+    --card-bg: #fff;
+    --text-primary: #333;
+    --text-secondary: #666;
+    --border-color: #ddd;
+    --danger: #e74c3c;
+    --success: #27ae60;
+    --status-registration: #27ae60;
+    --status-active: #f39c12;
+    --status-completed: #95a5a6;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.6;
+    color: var(--text-primary);
+    background-color: var(--light-bg);
+    transition: background-color 0.3s, color 0.3s;
+}
+
+body.dark-mode {
+    --light-bg: #0f0f0f;
+    --card-bg: #1a1a1a;
+    --text-primary: #e0e0e0;
+    --text-secondary: #b0b0b0;
+    --border-color: #333;
+}
+
+header {
+    background-color: var(--card-bg);
+    border-bottom: 2px solid var(--primary-color);
+    padding: 1rem 2rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.header-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.logo {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary-color);
+}
+
+nav {
+    display: flex;
+    gap: 1.5rem;
+    align-items: center;
+}
+
+nav button {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-weight: 500;
+    cursor: pointer;
+    font-size: 0.95rem;
+    transition: color 0.3s;
+}
+
+nav button:hover {
+    color: var(--primary-color);
+}
+
+.user-info {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.user-link {
+    background: none;
+    border: none;
+    color: var(--primary-color);
+    text-decoration: underline;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 600;
+    padding: 0;
+}
+
+.theme-toggle {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.2rem;
+    color: var(--text-primary);
+    transition: transform 0.3s;
+}
+
+.theme-toggle:hover {
+    transform: scale(1.1);
+}
+
+.hamburger {
+    display: none;
+    flex-direction: column;
+    cursor: pointer;
+    gap: 0.5rem;
+}
+
+.hamburger span {
+    width: 25px;
+    height: 3px;
+    background-color: var(--text-primary);
+    border-radius: 2px;
+    transition: all 0.3s;
+}
+
+.hamburger.active span:nth-child(1) {
+    transform: rotate(45deg) translate(10px, 10px);
+}
+
+.hamburger.active span:nth-child(2) {
+    opacity: 0;
+}
+
+.hamburger.active span:nth-child(3) {
+    transform: rotate(-45deg) translate(7px, -7px);
+}
+
+nav.mobile-open {
+    position: absolute;
+    top: 70px;
+    left: 0;
+    right: 0;
+    background-color: var(--card-bg);
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem 2rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+main {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+section {
+    display: none;
+}
+
+section.active {
+    display: block;
+}
+
+h1, h2, h3 {
+    margin-bottom: 1rem;
+    color: var(--text-primary);
+}
+
+h1 {
+    font-size: 2rem;
+}
+
+h2 {
+    font-size: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+p {
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+}
+
+.btn {
+    display: inline-block;
+    padding: 0.7rem 1.5rem;
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.3s;
+    margin: 0.5rem 0.5rem 0.5rem 0;
+}
+
+.btn:hover {
+    background-color: var(--primary-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 102, 204, 0.3);
+}
+
+.btn.danger {
+    background-color: var(--danger);
+}
+
+.btn.danger:hover {
+    background-color: #c0392b;
+}
+
+.btn.secondary {
+    background-color: transparent;
+    border: 2px solid var(--primary-color);
+    color: var(--primary-color);
+}
+
+.btn.secondary:hover {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 0.3rem 0.8rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-left: 0.5rem;
+}
+
+.status-registration {
+    background: rgba(39, 174, 96, 0.2);
+    color: var(--status-registration);
+    border: 1px solid var(--status-registration);
+}
+
+.status-active {
+    background: rgba(243, 156, 18, 0.2);
+    color: var(--status-active);
+    border: 1px solid var(--status-active);
+}
+
+.status-completed {
+    background: rgba(149, 165, 166, 0.2);
+    color: var(--status-completed);
+    border: 1px solid var(--status-completed);
+}
+
+.format-selector {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+}
+
+.format-btn {
+    padding: 0.6rem 1.2rem;
+    background-color: var(--card-bg);
+    border: 2px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.3s;
+    color: var(--text-primary);
+}
+
+.format-btn.active {
+    border-color: var(--primary-color);
+    background-color: rgba(0, 102, 204, 0.1);
+    color: var(--primary-color);
+}
+
+.format-btn:hover {
+    border-color: var(--primary-color);
+}
+
+.landing-hero {
+    background: linear-gradient(135deg, rgba(0, 102, 204, 0.14), rgba(255, 215, 0, 0.08));
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+}
+
+.landing-actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.landing-preview {
+    margin-top: 1rem;
+}
+
+.tournament-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    margin-top: 1rem;
+}
+
+.tournament-item {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+}
+
+.tournament-main {
+    min-width: 0;
+}
+
+.tournament-name-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.tournament-name {
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+
+.tournament-meta {
+    display: flex;
+    gap: 0.8rem;
+    flex-wrap: wrap;
+    color: var(--text-secondary);
+    font-size: 0.92rem;
+    margin-top: 0.5rem;
+}
+
+.tournament-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.tournament-item .tournament-actions .btn {
+    margin: 0;
+    min-width: 110px;
+    padding: 0.5rem 0.7rem;
+    font-size: 0.88rem;
+}
+
+.tournament-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+}
+
+.tournament-card {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+    transition: all 0.3s;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.tournament-card:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 8px 24px rgba(0, 102, 204, 0.2);
+}
+
+.tournament-header {
+    background: linear-gradient(135deg, #0066cc 0%, #0052a3 100%);
+    color: white;
+    padding: 1.5rem;
+}
+
+.tournament-title {
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+
+.tournament-type {
+    display: inline-block;
+    background-color: var(--accent-color);
+    color: #000;
+    padding: 0.3rem 0.8rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.tournament-body {
+    padding: 1.5rem;
+}
+
+.tournament-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin: 1rem 0;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+}
+
+.tournament-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+}
+
+.tournament-actions .btn {
+    flex: 1;
+    padding: 0.6rem 0.75rem;
+    margin: 0;
+    font-size: 0.9rem;
+    min-width: 100px;
+}
+
+.deck-builder-controls {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.6rem;
+    align-items: end;
+    margin-bottom: 0.8rem;
+}
+
+.deck-builder-controls > .form-group:first-child {
+    grid-column: 1 / -1;
+}
+
+#deck-card-name {
+    font-size: 1.2rem;
+    padding: 1rem 1.1rem;
+    height: auto;
+}
+
+.card-suggestions {
+    margin-top: 0.35rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--card-bg);
+    max-height: 340px;
+    overflow-y: auto;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+
+.card-suggestion-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    padding: 0.45rem 0.65rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.card-suggestion-btn:last-child {
+    border-bottom: none;
+}
+
+.suggestion-thumb {
+    width: 38px;
+    height: 55px;
+    object-fit: cover;
+    border-radius: 3px;
+    flex-shrink: 0;
+    background: var(--border-color);
+}
+
+.card-suggestion-btn:hover,
+.card-suggestion-btn.active {
+    background: rgba(0, 102, 204, 0.12);
+}
+
+.deck-builder-section {
+    margin-bottom: 0.85rem;
+}
+
+.deck-builder-section h4 {
+    margin-bottom: 0.45rem;
+    font-size: 0.95rem;
+}
+
+.deck-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    max-height: 260px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.55rem;
+    background: var(--light-bg);
+}
+
+.deck-card-item {
+    display: flex;
+    gap: 0.55rem;
+    align-items: center;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.4rem;
+}
+
+.deck-card-thumb {
+    width: 42px;
+    height: 60px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--light-bg);
+}
+
+.deck-card-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.88rem;
+    font-weight: 600;
+    word-break: break-word;
+}
+
+.deck-card-qty-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-shrink: 0;
+}
+
+.deck-qty-btn {
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    background: var(--card-bg);
+    color: var(--text-primary);
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.deck-qty-btn:hover {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: #fff;
+}
+
+.deck-qty-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.deck-card-qty {
+    min-width: 22px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.decklist-view-toggle {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.deck-image-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 0.6rem;
+}
+
+.deck-image-card {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--light-bg);
+    padding: 0.45rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.deck-image-thumb {
+    width: 100%;
+    max-width: 105px;
+    aspect-ratio: 0.7;
+    object-fit: cover;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    background: var(--card-bg);
+}
+
+.deck-image-thumb-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    text-align: center;
+    padding: 0.3rem;
+}
+
+.deck-image-name {
+    font-size: 0.8rem;
+    text-align: center;
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+.deck-image-qty {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    font-weight: 700;
+}
+
+.notification-toast {
+    min-width: 220px;
+    max-width: 320px;
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    color: #fff;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.24);
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    font-size: 0.86rem;
+}
+
+.notification-toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.notification-toast.info {
+    background: #2c3e50;
+}
+
+.notification-toast.success {
+    background: #1e8f4d;
+}
+
+.notification-toast.warning {
+    background: #b9770e;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-secondary);
+}
+
+.auth-form {
+    max-width: 400px;
+    margin: 3rem auto;
+    background-color: var(--card-bg);
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+select,
+textarea {
+    width: 100%;
+    padding: 0.8rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 1rem;
+    background-color: var(--card-bg);
+    color: var(--text-primary);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.1);
+}
+
+.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.error {
+    color: var(--danger);
+    font-size: 0.9rem;
+    margin-top: 0.5rem;
+}
+
+.success {
+    color: var(--success);
+    font-size: 0.9rem;
+    margin-top: 0.5rem;
+}
+
+footer {
+    background-color: var(--card-bg);
+    border-top: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 2rem;
+    margin-top: 4rem;
+}
+
+@media (max-width: 768px) {
+    main {
+        padding: 1rem;
+    }
+
+    h1 {
+        font-size: 1.5rem;
+    }
+
+    .hamburger {
+        display: flex;
+    }
+
+    nav {
+        display: none;
+    }
+
+    nav.mobile-open {
+        display: flex;
+    }
+
+    .tournament-item {
+        flex-direction: column;
+    }
+
+    .auth-form {
+        margin: 1rem auto;
+        padding: 1.5rem;
+    }
+
+    .deck-builder-controls {
+        grid-template-columns: 1fr;
+    }
+
+    .tournament-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .tournament-item .tournament-actions .btn {
+        width: 100%;
+    }
+}
