@@ -1,3 +1,12 @@
+/*
+ * End-to-end API integration tests (Node test runner + Supertest + in-memory MongoDB).
+ *
+ * Coverage goals:
+ * - Auth/session behavior
+ * - Decklist CRUD
+ * - Tournament creation/join flow
+ * - Validation failures and rate-limit behavior
+ */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
@@ -11,6 +20,7 @@ const { resetRateLimiters } = require('../server/security');
 let mongod;
 let app;
 
+// Socket behavior is not under test here; provide minimal stub to satisfy registerApi.
 function buildIoStub() {
   return {
     on: () => {},
@@ -19,6 +29,7 @@ function buildIoStub() {
 }
 
 async function registerUser(client, { username, email, password }) {
+  // Shared helper keeps auth setup compact across test cases.
   const response = await client
     .post('/api/auth/register')
     .send({ username, email, password });
@@ -30,6 +41,7 @@ async function registerUser(client, { username, email, password }) {
 }
 
 test.before(async () => {
+  // Boot isolated in-memory MongoDB and mount the API once for the suite.
   mongod = await MongoMemoryServer.create();
   process.env.MONGODB_URI = mongod.getUri();
   process.env.JWT_SECRET = 'test-jwt-secret';

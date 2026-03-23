@@ -1,5 +1,14 @@
+/*
+ * Client-side application controller for the TCG platform.
+ *
+ * This script owns:
+ * - SPA-style section routing and browser history behavior.
+ * - Auth/session handling and API request orchestration.
+ * - Tournament/decklist rendering and live update subscriptions.
+ */
 const API_URL = '/api';
 const YGO_CARD_API_URL = '/api/v7/cardinfo.php';
+// Global UI and request state for the single-page frontend.
 let currentUser = null;
 let currentFormat = 'all';
 let sectionHistory = [];
@@ -32,6 +41,7 @@ const INVALID_STORED_TOKEN_VALUES = new Set(['', 'undefined', 'null']);
 let activeSessionRefreshPromise = null;
 
 function ensureLoadingScreenElements() {
+    // Lazily create loading overlay markup when older HTML snapshots are missing it.
     let loadingScreen = document.getElementById('loading-screen');
     if (!loadingScreen) {
         loadingScreen = document.createElement('div');
@@ -60,6 +70,7 @@ function ensureLoadingScreenElements() {
 }
 
 function ensureDecklistArchetypeField() {
+    // Backfill archetype field in legacy DOM snapshots where it may be absent.
     const form = document.getElementById('decklist-form');
     if (!form || document.getElementById('decklist-archetype')) return;
 
@@ -94,6 +105,7 @@ function setLoadingScreenAria(isVisible) {
 }
 
 function beginGlobalLoading(options = {}) {
+    // Track concurrent API requests so the spinner does not flicker for fast calls.
     const immediate = options.immediate === true;
     if (typeof options.message === 'string' && options.message.trim()) {
         setLoadingScreenMessage(options.message.trim());
@@ -144,6 +156,7 @@ function endGlobalLoading() {
 }
 
 function normalizeStoredToken(token) {
+    // Defend against historically saved invalid values like "undefined" or "null".
     if (typeof token !== 'string') {
         return null;
     }
@@ -238,6 +251,8 @@ function isAppApiRequest(requestTarget) {
     return false;
 }
 
+// Wrap fetch globally to enforce same-origin credential behavior for API calls,
+// auto-refresh sessions on 401, and drive the global loading indicator.
 const nativeFetch = window.fetch.bind(window);
 window.fetch = async (input, init) => {
     const suppressLoading = !!(init && typeof init === 'object' && init.suppressLoading === true);
@@ -313,6 +328,7 @@ function escapeHtml(value) {
 }
 
 function normalizeCardImageUrl(imageUrl) {
+    // Rewrite upstream YGO image URLs to local proxy routes for CORS/cache consistency.
     const rawUrl = String(imageUrl || '').trim();
     if (!rawUrl) return '';
 

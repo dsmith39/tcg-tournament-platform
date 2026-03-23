@@ -1,3 +1,4 @@
+// Verifies tournament deep-link rendering for standings and round match content.
 const { expect, test } = require('@playwright/test');
 const { installMockApi } = require('./helpers/mock-api');
 

@@ -1,3 +1,9 @@
+# Local Windows E2E helper script.
+#
+# Responsibilities:
+# - Clean stale Node listeners on common app/test ports.
+# - Optionally exit after cleanup only.
+# - Run the Playwright suite in a deterministic single-worker mode.
 param(
   [switch]$CleanupOnly
 )
@@ -10,6 +16,7 @@ function Stop-NodeOnPorts {
   )
 
   foreach ($port in $Ports) {
+    # Find processes listening on each requested port and terminate them.
     $connections = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue
     if (-not $connections) {
       continue
@@ -42,6 +49,7 @@ if ($CleanupOnly) {
 Push-Location $repoRoot
 try {
   Write-Host 'Running e2e suite...'
+  # npm.cmd avoids PowerShell command shims and execution-policy surprises.
   & npm.cmd run test:e2e -- --workers=1
   exit $LASTEXITCODE
 }

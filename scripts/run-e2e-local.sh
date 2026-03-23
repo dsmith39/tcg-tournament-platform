@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Local Unix E2E helper script.
+#
+# Responsibilities:
+# - Stop stale Node listeners that can interfere with Playwright startup.
+# - Optionally perform cleanup only.
+# - Execute the E2E suite from repository root.
 set -euo pipefail
 
 cleanup_only="false"
@@ -11,6 +17,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 stop_node_on_port() {
   local port="$1"
 
+  # Prefer lsof when available for explicit PID discovery.
   if command -v lsof >/dev/null 2>&1; then
     local pids
     pids="$(lsof -ti tcp:"$port" -sTCP:LISTEN 2>/dev/null || true)"
@@ -26,6 +33,7 @@ stop_node_on_port() {
     return
   fi
 
+  # Fallback for systems without lsof.
   if command -v fuser >/dev/null 2>&1; then
     fuser -k "${port}/tcp" 2>/dev/null || true
   fi

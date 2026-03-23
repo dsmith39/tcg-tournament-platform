@@ -1,3 +1,4 @@
+// Verifies deep-link load of decklists with authenticated localStorage state.
 const { expect, test } = require('@playwright/test');
 const { installMockApi } = require('./helpers/mock-api');
 

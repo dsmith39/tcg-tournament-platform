@@ -1,3 +1,4 @@
+// Validates anonymous landing navigation into tournament detail pages.
 const { expect, test } = require('@playwright/test');
 const { installMockApi } = require('./helpers/mock-api');
 

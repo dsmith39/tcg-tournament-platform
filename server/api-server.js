@@ -1,3 +1,11 @@
+/*
+ * Core API module for authentication, decklists, tournaments, and match flow.
+ *
+ * Architecture notes:
+ * - Exports registerApi(app, io) so HTTP wiring stays in server.js.
+ * - Keeps mongoose models and tournament helpers co-located for now.
+ * - Uses validation + security modules to keep handlers focused on domain logic.
+ */
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -28,6 +36,7 @@ const {
   matchActionLimiter
 } = require('./security');
 
+// Cached connection promise prevents duplicate concurrent mongoose.connect() calls.
 let mongoConnectionPromise = null;
 
 function ensureMongoConnection() {
@@ -102,13 +111,13 @@ function rewriteCardImageUrls(payload, req) {
 }
 
 function registerApi(app, io) {
-// Global middleware is intentionally kept minimal here so route handlers remain explicit.
-app.use(cors());
-app.use(express.json());
+  // Global middleware is intentionally kept minimal here so route handlers remain explicit.
+  app.use(cors());
+  app.use(express.json());
 
-// Legacy frontend compatibility: proxy YGO card lookups and images through the backend so
-// the browser can use same-origin /api/v7 endpoints without talking to YGOPRO directly.
-app.get('/api/v7/cardinfo.php', async (req, res) => {
+  // Legacy frontend compatibility: proxy YGO card lookups and images through the backend so
+  // the browser can use same-origin /api/v7 endpoints without talking to YGOPRO directly.
+  app.get('/api/v7/cardinfo.php', async (req, res) => {
   try {
     const upstreamUrl = new URL('https://db.ygoprodeck.com/api/v7/cardinfo.php');
     Object.entries(req.query || {}).forEach(([key, value]) => {
@@ -138,7 +147,7 @@ app.get('/api/v7/cardinfo.php', async (req, res) => {
   }
 });
 
-app.get('/api/v7/card-image/:id', async (req, res) => {
+  app.get('/api/v7/card-image/:id', async (req, res) => {
   try {
     const cardId = String(req.params.id || '').trim();
     const size = String(req.query.size || 'full').trim().toLowerCase();
@@ -174,12 +183,16 @@ app.get('/api/v7/card-image/:id', async (req, res) => {
   }
 });
 
-// MongoDB connection
+  // MongoDB connection is established lazily and reused for route handlers.
   ensureMongoConnection().catch((err) => {
     console.error('MongoDB connection unavailable:', err.message);
   });
 
-// User Schema
+  // -----------------------
+  // Data model definitions
+  // -----------------------
+
+  // User Schema
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   email: { type: String, required: true, unique: true },

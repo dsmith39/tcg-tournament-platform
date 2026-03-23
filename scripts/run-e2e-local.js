@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+/*
+ * Cross-platform wrapper for local E2E execution.
+ *
+ * This script chooses the OS-native cleanup/test runner:
+ * - PowerShell script on Windows
+ * - Bash script on macOS/Linux
+ */
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 
@@ -6,6 +13,7 @@ const repoRoot = path.resolve(__dirname, '..');
 const args = process.argv.slice(2);
 
 function run(command, commandArgs) {
+  // Inherit stdio so developers can see real-time Playwright output.
   const result = spawnSync(command, commandArgs, {
     cwd: repoRoot,
     stdio: 'inherit',
@@ -22,6 +30,7 @@ function run(command, commandArgs) {
 }
 
 if (process.platform === 'win32') {
+  // Windows path: bypass script execution-policy friction for local runs.
   run('powershell', [
     '-ExecutionPolicy',
     'Bypass',
@@ -30,6 +39,7 @@ if (process.platform === 'win32') {
     ...(args.includes('--cleanup-only') ? ['-CleanupOnly'] : [])
   ]);
 } else {
+  // Unix path: shell script handles cleanup + e2e invocation.
   run('bash', [
     path.join(__dirname, 'run-e2e-local.sh'),
     ...(args.includes('--cleanup-only') ? ['--cleanup-only'] : [])

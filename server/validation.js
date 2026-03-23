@@ -1,3 +1,11 @@
+/*
+ * API input contract definitions.
+ *
+ * This module centralizes all zod schemas so:
+ * - handlers can trust req.validated data,
+ * - validation messages stay consistent,
+ * - schema drift is minimized between endpoints.
+ */
 const { z } = require('zod');
 
 // Centralizing validation keeps route handlers focused on business rules instead of input parsing.
@@ -8,6 +16,7 @@ const tournamentFormatValues = ['swiss', 'single-elim', 'double-elim'];
 const matchResultValues = ['player1', 'player2', 'draw'];
 const topCutSizes = [0, 4, 8, 16, 32];
 
+// Shared ObjectId shape for all route params and ID-bearing payloads.
 const objectIdSchema = z.string().trim().regex(/^[0-9a-fA-F]{24}$/, 'Invalid id format');
 
 const trimmedString = (maxLength) => z.string().trim().max(maxLength);

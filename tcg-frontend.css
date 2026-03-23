@@ -1,9 +1,19 @@
+/*
+ * Main stylesheet for the static frontend shell.
+ *
+ * Structure:
+ * - Design tokens and theme variables
+ * - Shared primitives (buttons, badges, containers)
+ * - Section-specific layout components
+ * - Responsive behavior + motion states
+ */
 * {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
 }
 
+/* Light theme design tokens used across all components. */
 :root {
     --primary-color: #6366f1;
     --primary-hover: #4f46e5;
@@ -39,6 +49,7 @@ body {
     transition: background-color 0.3s ease, color 0.3s ease;
 }
 
+/* Dark mode overrides: keeps token names stable for all components. */
 body.dark-mode {
     --light-bg: #0f172a;
     --surface-bg: #1e293b;
@@ -50,6 +61,7 @@ body.dark-mode {
     --border-dark: #475569;
 }
 
+/* Sticky app chrome and top-level navigation. */
 header {
     background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
     border-bottom: 1px solid var(--border-color);
@@ -185,6 +197,7 @@ nav.mobile-open {
     box-shadow: var(--shadow-lg);
 }
 
+/* Main content shell for all section views. */
 main {
     max-width: 1400px;
     margin: 0 auto;
@@ -240,6 +253,7 @@ p {
     margin-bottom: 1rem;
 }
 
+/* Shared interactive button style used by actions across views. */
 .btn {
     display: inline-block;
     padding: 0.8rem 1.6rem;

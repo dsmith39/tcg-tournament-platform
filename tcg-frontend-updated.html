@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="TCG Tournament Platform">
     <title>TCG Tournament Platform</title>
+    <!-- Single shared stylesheet for the static frontend shell. -->
     <link rel="stylesheet" href="/tcg-frontend.css">
 </head>
 <body>
+    <!-- Sticky app header with section navigation and auth-related controls. -->
     <header>
         <div class="header-container">
             <div class="logo">🎴 TCG Tournament</div>
@@ -331,6 +333,7 @@
             </div>
         </section>
 
+        <!-- Floating notification center managed by tcg-frontend.js. -->
         <div id="notifications-panel" style="display:none; position: fixed; top: 84px; right: 24px; width: 340px; max-width: calc(100vw - 32px); max-height: 70vh; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 10px; background: var(--card-bg); box-shadow: 0 6px 20px rgba(0,0,0,0.22); z-index: 300;">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; padding:0.7rem 0.85rem; border-bottom:1px solid var(--border-color);">
                 <strong>Notifications</strong>
@@ -341,6 +344,7 @@
             </div>
         </div>
 
+        <!-- Toast stack for transient system messages. -->
         <div id="notification-toast-stack" style="position: fixed; right: 20px; bottom: 20px; display:flex; flex-direction:column; gap:0.45rem; z-index: 320;"></div>
 
         <div id="loading-screen" class="loading-screen" aria-live="polite" aria-busy="true" role="status" aria-hidden="true">
@@ -355,6 +359,7 @@
         <p>&copy; 2026 TCG Tournament Platform. Powered by Node.js + MongoDB.</p>
     </footer>
 
+    <!-- Socket.IO client is loaded first so realtime bindings are available to app code. -->
     <script src="/socket.io/socket.io.js"></script>
     <script src="/tcg-frontend.js"></script>
 </body>

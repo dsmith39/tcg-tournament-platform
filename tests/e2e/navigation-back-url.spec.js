@@ -1,3 +1,4 @@
+// Ensures browser URL + in-app back navigation stay consistent for deep links.
 const { expect, test } = require('@playwright/test');
 const { installMockApi } = require('./helpers/mock-api');
 
@@ -30,7 +31,7 @@ test('unauthenticated UI back keeps tournament detail URL', async ({ page }) => 
 
   state.tournaments = [tournament];
 
-  // Simulate logged-out session.
+  // Simulate logged-out session to verify public-view navigation behavior.
   await page.route('**/api/auth/me**', async (route) => {
     await route.fulfill({
       status: 401,

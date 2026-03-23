@@ -1,3 +1,4 @@
+// Validates auth screen mode switches and URL synchronization.
 const { expect, test } = require('@playwright/test');
 const { installMockApi } = require('./helpers/mock-api');
 

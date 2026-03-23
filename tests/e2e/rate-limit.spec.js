@@ -1,3 +1,4 @@
+// Confirms unauthenticated decklist route enforcement by redirecting to login.
 const { expect, test } = require('@playwright/test');
 const { installMockApi } = require('./helpers/mock-api');
 

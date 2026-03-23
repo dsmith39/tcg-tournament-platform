@@ -1,3 +1,9 @@
+/*
+ * Legacy standalone backend server (tcg-backend).
+ *
+ * This file mirrors most of the API/domain logic now used from server/api-server.js,
+ * but keeps its own process wiring for historical/local compatibility.
+ */
 const express = require('express');
 const http = require('http');
 const mongoose = require('mongoose');
@@ -17,14 +23,18 @@ const io = new Server(server, {
   }
 });
 
-// Middleware
+// Shared middleware for JSON APIs and cross-origin frontend access.
 app.use(cors());
 app.use(express.json());
 
-// MongoDB connection
+// Single mongoose connection for all model operations in this process.
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('MongoDB connected'))
   .catch((err) => console.error('MongoDB connection error:', err));
+
+// -----------------------
+// Data model definitions
+// -----------------------
 
 // User Schema
 const userSchema = new mongoose.Schema({

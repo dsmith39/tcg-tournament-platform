@@ -1,8 +1,17 @@
+/*
+ * Playwright configuration for local and CI browser E2E coverage.
+ *
+ * Key points:
+ * - Uses the in-repo web server command before tests start.
+ * - Selects npm.cmd on Windows to avoid shell alias/execution-policy issues.
+ * - Keeps tracing on first retry to aid flaky test diagnosis.
+ */
 const { defineConfig, devices } = require('@playwright/test');
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 module.exports = defineConfig({
+  // Tests target only browser-facing E2E specs under tests/e2e.
   testDir: './tests/e2e',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
@@ -23,6 +32,7 @@ module.exports = defineConfig({
       use: { ...devices['Desktop Chrome'] }
     }
   ],
+  // Start the production-like app for E2E and reuse if already running.
   webServer: {
     command: `${npmCommand} run start`,
     url: 'http://127.0.0.1:3200',

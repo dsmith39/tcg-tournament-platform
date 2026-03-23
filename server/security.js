@@ -1,3 +1,11 @@
+/*
+ * Route-specific rate limiting policy for API protection.
+ *
+ * Why separate limiters:
+ * - Auth endpoints require stricter brute-force protection.
+ * - General write endpoints need broader but bounded throughput.
+ * - Match actions are sensitive to race-condition abuse.
+ */
 const { ipKeyGenerator, rateLimit, MemoryStore } = require('express-rate-limit');
 
 // These limiters are intentionally scoped by route type instead of one global setting.
@@ -10,6 +18,7 @@ const authStore = new MemoryStore();
 const writeStore = new MemoryStore();
 const matchActionStore = new MemoryStore();
 
+// Shared factory ensures all limiters emit the same structured JSON errors.
 const buildLimiter = ({
   windowMs,
   max,

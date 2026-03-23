@@ -1,3 +1,11 @@
+/*
+ * Browser-side API mocking harness for Playwright E2E tests.
+ *
+ * Purpose:
+ * - Simulate backend responses deterministically.
+ * - Keep tests fast and independent from external services.
+ * - Allow scenario mutation through returned state object.
+ */
 async function readJsonBody(route) {
   let body = null;
   try {
@@ -20,6 +28,7 @@ async function readJsonBody(route) {
   return {};
 }
 
+// Unified JSON responder helper so route handlers stay concise.
 function json(route, status, payload, headers = {}) {
   return route.fulfill({
     status,
@@ -30,6 +39,7 @@ function json(route, status, payload, headers = {}) {
 }
 
 async function installMockApi(page, options = {}) {
+  // Mutable in-memory state that tests can tweak for scenario-specific behavior.
   const state = {
     user: {
       id: 'u1',
@@ -81,6 +91,9 @@ async function installMockApi(page, options = {}) {
     ]
   };
 
+  // -----------------------
+  // Auth endpoint stubs
+  // -----------------------
   await page.route('**/api/auth/me**', async (route) => {
     await json(route, 200, state.user);
   });
@@ -131,6 +144,9 @@ async function installMockApi(page, options = {}) {
     await json(route, 201, { user: state.user });
   });
 
+  // -----------------------
+  // Decklist endpoint stubs
+  // -----------------------
   await page.route('**/api/decklists/recent', async (route) => {
     await json(route, 200, state.decklists);
   });
@@ -198,6 +214,9 @@ async function installMockApi(page, options = {}) {
     await route.fallback();
   });
 
+  // -----------------------
+  // Tournament endpoint stubs
+  // -----------------------
   await page.route('**/api/tournaments', async (route) => {
     const method = route.request().method();
 
@@ -338,6 +357,7 @@ async function installMockApi(page, options = {}) {
     await route.fallback();
   });
 
+  // Block websocket transport in tests to avoid noisy retries.
   await page.route('**/api/socket.io/**', async (route) => {
     await route.abort();
   });
