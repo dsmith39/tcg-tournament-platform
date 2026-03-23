@@ -1,30 +1,183 @@
 const express = require('express');
-const http = require('http');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { Server } = require('socket.io');
-require('dotenv').config();
+const crypto = require('crypto');
+const {
+  gameEnumValues,
+  registerBodySchema,
+  loginBodySchema,
+  userProfileUpdateBodySchema,
+  createDecklistBodySchema,
+  updateDecklistBodySchema,
+  createTournamentBodySchema,
+  joinTournamentBodySchema,
+  matchReportBodySchema,
+  matchDisputeBodySchema,
+  matchResolveBodySchema,
+  matchReopenBodySchema,
+  tournamentIdParamsSchema,
+  roundIdParamsSchema,
+  matchIdParamsSchema,
+  validateRequest
+} = require('./validation');
+const {
+  authLimiter,
+  writeLimiter,
+  matchActionLimiter
+} = require('./security');
 
-const app = express();
-const PORT = process.env.PORT || 5000;
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST', 'PATCH', 'DELETE']
+let mongoConnectionPromise = null;
+
+function ensureMongoConnection() {
+  const mongoUri = process.env.MONGODB_URI;
+  if (!mongoUri || typeof mongoUri !== 'string' || !mongoUri.trim()) {
+    const error = new Error('MONGODB_URI is not set. Add it to your .env file before starting the server.');
+    return Promise.reject(error);
   }
-});
 
-// Middleware
+  if (!mongoConnectionPromise) {
+    mongoConnectionPromise = mongoose.connect(mongoUri)
+      .then(() => console.log('MongoDB connected'))
+      .catch((err) => {
+        console.error('MongoDB connection error:', err);
+        mongoConnectionPromise = null;
+        throw err;
+      });
+  }
+
+  return mongoConnectionPromise;
+}
+
+function buildLocalCardImageUrl(req, cardId, size = 'full') {
+  if (!cardId) return '';
+
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const url = new URL(`/api/v7/card-image/${encodeURIComponent(String(cardId))}`, baseUrl);
+  if (size !== 'full') {
+    url.searchParams.set('size', size);
+  }
+  return url.toString();
+}
+
+function rewriteCardImageUrls(payload, req) {
+  if (!payload || typeof payload !== 'object') {
+    return payload;
+  }
+
+  if (Array.isArray(payload)) {
+    return payload.map((entry) => rewriteCardImageUrls(entry, req));
+  }
+
+  const cloned = { ...payload };
+
+  if (Array.isArray(cloned.card_images)) {
+    cloned.card_images = cloned.card_images.map((image) => {
+      const cardId = image?.id || payload.id;
+      if (!cardId) {
+        return image;
+      }
+
+      return {
+        ...image,
+        image_url: buildLocalCardImageUrl(req, cardId, 'full'),
+        image_url_small: buildLocalCardImageUrl(req, cardId, 'small'),
+        image_url_cropped: buildLocalCardImageUrl(req, cardId, 'cropped')
+      };
+    });
+  }
+
+  Object.entries(cloned).forEach(([key, value]) => {
+    if (key === 'card_images') {
+      return;
+    }
+
+    if (value && typeof value === 'object') {
+      cloned[key] = rewriteCardImageUrls(value, req);
+    }
+  });
+
+  return cloned;
+}
+
+function registerApi(app, io) {
+// Global middleware is intentionally kept minimal here so route handlers remain explicit.
 app.use(cors());
 app.use(express.json());
 
+// Legacy frontend compatibility: proxy YGO card lookups and images through the backend so
+// the browser can use same-origin /api/v7 endpoints without talking to YGOPRO directly.
+app.get('/api/v7/cardinfo.php', async (req, res) => {
+  try {
+    const upstreamUrl = new URL('https://db.ygoprodeck.com/api/v7/cardinfo.php');
+    Object.entries(req.query || {}).forEach(([key, value]) => {
+      if (Array.isArray(value)) {
+        value.forEach((entry) => upstreamUrl.searchParams.append(key, String(entry)));
+      } else if (value !== undefined && value !== null) {
+        upstreamUrl.searchParams.set(key, String(value));
+      }
+    });
+
+    const upstreamResponse = await fetch(upstreamUrl);
+    const responseText = await upstreamResponse.text();
+
+    if (!upstreamResponse.ok) {
+      res.status(upstreamResponse.status);
+      res.type('application/json').send(responseText);
+      return;
+    }
+
+    const parsedPayload = JSON.parse(responseText);
+    const rewrittenPayload = rewriteCardImageUrls(parsedPayload, req);
+
+    res.status(upstreamResponse.status);
+    res.type('application/json').send(JSON.stringify(rewrittenPayload));
+  } catch (error) {
+    res.status(502).json({ message: 'Unable to reach card data service' });
+  }
+});
+
+app.get('/api/v7/card-image/:id', async (req, res) => {
+  try {
+    const cardId = String(req.params.id || '').trim();
+    const size = String(req.query.size || 'full').trim().toLowerCase();
+
+    if (!/^\d+$/.test(cardId)) {
+      res.status(400).json({ message: 'Invalid card image id' });
+      return;
+    }
+
+    const imagePath = size === 'small'
+      ? `https://images.ygoprodeck.com/images/cards_small/${cardId}.jpg`
+      : size === 'cropped'
+        ? `https://images.ygoprodeck.com/images/cards_cropped/${cardId}.jpg`
+        : `https://images.ygoprodeck.com/images/cards/${cardId}.jpg`;
+
+    const upstreamResponse = await fetch(imagePath);
+    if (!upstreamResponse.ok) {
+      res.status(upstreamResponse.status).end();
+      return;
+    }
+
+    const contentType = upstreamResponse.headers.get('content-type') || 'image/jpeg';
+    const cacheControl = upstreamResponse.headers.get('cache-control');
+    const imageBuffer = Buffer.from(await upstreamResponse.arrayBuffer());
+
+    if (cacheControl) {
+      res.set('Cache-Control', cacheControl);
+    }
+    res.status(upstreamResponse.status);
+    res.type(contentType).send(imageBuffer);
+  } catch (error) {
+    res.status(502).json({ message: 'Unable to reach card image service' });
+  }
+});
+
 // MongoDB connection
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('MongoDB connected'))
-  .catch((err) => console.error('MongoDB connection error:', err));
+  ensureMongoConnection().catch((err) => {
+    console.error('MongoDB connection unavailable:', err.message);
+  });
 
 // User Schema
 const userSchema = new mongoose.Schema({
@@ -37,11 +190,18 @@ const userSchema = new mongoose.Schema({
   favoriteDeck: { type: String, default: '', maxlength: 120 },
   website: { type: String, default: '', maxlength: 120 },
   avatarUrl: { type: String, default: '', maxlength: 500 },
+  sessionVersion: { type: Number, default: 0 },
+  refreshTokens: [{
+    tokenHash: { type: String, required: true },
+    expiresAt: { type: Date, required: true },
+    createdAt: { type: Date, default: Date.now }
+  }],
   createdAt: { type: Date, default: Date.now }
 });
-const User = mongoose.model('User', userSchema);
+const User = mongoose.models.User || mongoose.model('User', userSchema);
 
-const gameEnum = ['ygo-tcg', 'master-duel', 'duel-links'];
+// Shared enums come from the validation module so runtime validation and mongoose schemas stay aligned.
+const gameEnum = gameEnumValues;
 
 // Decklist Schema
 const decklistSchema = new mongoose.Schema({
@@ -66,7 +226,7 @@ decklistSchema.pre('save', function updateDecklistTimestamp() {
   this.updatedAt = new Date();
 });
 
-const Decklist = mongoose.model('Decklist', decklistSchema);
+const Decklist = mongoose.models.Decklist || mongoose.model('Decklist', decklistSchema);
 
 // Match + Round sub-schemas
 const disputeHistorySchema = new mongoose.Schema({
@@ -169,7 +329,7 @@ const tournamentSchema = new mongoose.Schema({
   topCutPlayers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   topCutStartRound: { type: Number, default: null }
 });
-const Tournament = mongoose.model('Tournament', tournamentSchema);
+const Tournament = mongoose.models.Tournament || mongoose.model('Tournament', tournamentSchema);
 
 const toIdString = (value) => (value ? value.toString() : null);
 
@@ -1022,14 +1182,148 @@ const buildUserProfileResponse = async (user) => {
   };
 };
 
+// Access tokens are intentionally short-lived so stolen cookies expire quickly.
+// Refresh tokens are stored hashed in MongoDB and rotated on every refresh request.
+const ACCESS_COOKIE_NAME = 'tcg_access';
+const REFRESH_COOKIE_NAME = 'tcg_refresh';
+const ACCESS_TTL_SECONDS = 15 * 60;
+const REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60;
+const MAX_REFRESH_TOKENS = 10;
+
+// Cookie parsing is implemented locally to avoid pulling another dependency into the server.
+const parseCookies = (req) => {
+  const rawCookie = req.headers?.cookie;
+  if (!rawCookie) return {};
+
+  return rawCookie.split(';').reduce((acc, pair) => {
+    const [rawName, ...rest] = pair.trim().split('=');
+    if (!rawName) return acc;
+    acc[rawName] = decodeURIComponent(rest.join('='));
+    return acc;
+  }, {});
+};
+
+const getCookieValue = (req, name) => parseCookies(req)[name] || null;
+
+const getBearerToken = (req) => {
+  const authHeader = req.header('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  return authHeader.replace('Bearer ', '').trim();
+};
+
+const getAccessTokenFromRequest = (req) => getBearerToken(req) || getCookieValue(req, ACCESS_COOKIE_NAME);
+
+const isSecureCookie = process.env.NODE_ENV === 'production';
+
+const buildCookieOptions = (maxAgeMs, path = '/') => ({
+  httpOnly: true,
+  secure: isSecureCookie,
+  sameSite: 'lax',
+  path,
+  maxAge: maxAgeMs
+});
+
+const clearAuthCookies = (res) => {
+  res.clearCookie(ACCESS_COOKIE_NAME, { path: '/' });
+  res.clearCookie(REFRESH_COOKIE_NAME, { path: '/api/auth' });
+};
+
+const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
+
+const pruneRefreshTokens = (user) => {
+  const now = new Date();
+  user.refreshTokens = (user.refreshTokens || [])
+    .filter((entry) => entry.expiresAt > now)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .slice(0, MAX_REFRESH_TOKENS);
+};
+
+const signAccessToken = (user) => jwt.sign(
+  {
+    id: toIdString(user._id),
+    ver: user.sessionVersion || 0,
+    type: 'access'
+  },
+  process.env.JWT_SECRET,
+  { expiresIn: `${ACCESS_TTL_SECONDS}s` }
+);
+
+const signRefreshToken = (user, jti) => jwt.sign(
+  {
+    id: toIdString(user._id),
+    ver: user.sessionVersion || 0,
+    type: 'refresh',
+    jti
+  },
+  process.env.JWT_SECRET,
+  { expiresIn: `${REFRESH_TTL_SECONDS}s` }
+);
+
+const addRefreshTokenToUser = (user, refreshToken, expiresAt) => {
+  const tokenHash = hashToken(refreshToken);
+  user.refreshTokens = (user.refreshTokens || []).filter((entry) => entry.tokenHash !== tokenHash);
+  user.refreshTokens.push({
+    tokenHash,
+    expiresAt,
+    createdAt: new Date()
+  });
+  pruneRefreshTokens(user);
+};
+
+const removeRefreshTokenFromUser = (user, refreshToken) => {
+  const tokenHash = hashToken(refreshToken);
+  user.refreshTokens = (user.refreshTokens || []).filter((entry) => entry.tokenHash !== tokenHash);
+};
+
+const hasRefreshToken = (user, refreshToken) => {
+  const tokenHash = hashToken(refreshToken);
+  const now = new Date();
+  return (user.refreshTokens || []).some((entry) => entry.tokenHash === tokenHash && entry.expiresAt > now);
+};
+
+// Every successful login/register/refresh issues a fresh access token and a rotated refresh token.
+// The caller's browser becomes the credential store while React only tracks user/session presence.
+const issueAuthCookies = (res, user) => {
+  const accessToken = signAccessToken(user);
+  const refreshJti = crypto.randomUUID();
+  const refreshToken = signRefreshToken(user, refreshJti);
+  const refreshExpiresAt = new Date(Date.now() + REFRESH_TTL_SECONDS * 1000);
+
+  addRefreshTokenToUser(user, refreshToken, refreshExpiresAt);
+
+  res.cookie(
+    ACCESS_COOKIE_NAME,
+    accessToken,
+    buildCookieOptions(ACCESS_TTL_SECONDS * 1000, '/')
+  );
+  res.cookie(
+    REFRESH_COOKIE_NAME,
+    refreshToken,
+    buildCookieOptions(REFRESH_TTL_SECONDS * 1000, '/api/auth')
+  );
+};
+
 // JWT middleware
-const authMiddleware = (req, res, next) => {
-  const token = req.header('Authorization')?.replace('Bearer ', '');
+const authMiddleware = async (req, res, next) => {
+  const token = getAccessTokenFromRequest(req);
   if (!token) return res.status(401).json({ error: 'No token provided' });
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
+    if (decoded?.type !== 'access' || !decoded?.id) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const user = await User.findById(decoded.id).select('sessionVersion');
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    if ((decoded.ver || 0) !== (user.sessionVersion || 0)) {
+      return res.status(401).json({ error: 'Session expired. Please login again.' });
+    }
+
+    req.user = { id: toIdString(user._id), sessionVersion: user.sessionVersion || 0 };
     next();
   } catch (error) {
     res.status(401).json({ error: 'Invalid token' });
@@ -1037,11 +1331,12 @@ const authMiddleware = (req, res, next) => {
 };
 
 const getOptionalUserIdFromAuthHeader = (req) => {
-  const token = req.header('Authorization')?.replace('Bearer ', '');
+  const token = getAccessTokenFromRequest(req);
   if (!token) return null;
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded?.type !== 'access') return null;
     return decoded?.id || null;
   } catch (error) {
     return null;
@@ -1079,10 +1374,10 @@ io.on('connection', (socket) => {
 });
 
 // Routes
-// Register
-app.post('/api/auth/register', async (req, res) => {
+// Register creates a new user and immediately issues cookie-based session tokens.
+app.post('/api/auth/register', authLimiter, validateRequest({ body: registerBodySchema }), async (req, res) => {
   try {
-    const { username, email, password } = req.body;
+    const { username, email, password } = req.validated.body;
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -1092,20 +1387,19 @@ app.post('/api/auth/register', async (req, res) => {
       password: hashedPassword
     });
 
+    issueAuthCookies(res, user);
     await user.save();
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '24h' });
-
-    res.json({ token, user: { id: user._id, username, email } });
+    res.json({ user: { id: user._id, username, email } });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
 
-// Login
-app.post('/api/auth/login', async (req, res) => {
+// Login rotates session cookies so the browser becomes the token store instead of localStorage.
+app.post('/api/auth/login', authLimiter, validateRequest({ body: loginBodySchema }), async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password } = req.validated.body;
 
     const user = await User.findOne({ email });
     if (!user) return res.status(400).json({ error: 'Invalid credentials' });
@@ -1113,10 +1407,101 @@ app.post('/api/auth/login', async (req, res) => {
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) return res.status(400).json({ error: 'Invalid credentials' });
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '24h' });
+    issueAuthCookies(res, user);
+    await user.save();
 
-    res.json({ token, user: { id: user._id, username: user.username, email } });
+    res.json({ user: { id: user._id, username: user.username, email } });
   } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/auth/refresh', authLimiter, async (req, res) => {
+  try {
+    const refreshToken = getCookieValue(req, REFRESH_COOKIE_NAME);
+    if (!refreshToken) {
+      clearAuthCookies(res);
+      return res.status(401).json({ error: 'No refresh token provided' });
+    }
+
+    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+    if (decoded?.type !== 'refresh' || !decoded?.id) {
+      clearAuthCookies(res);
+      return res.status(401).json({ error: 'Invalid refresh token' });
+    }
+
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      clearAuthCookies(res);
+      return res.status(401).json({ error: 'Invalid refresh token' });
+    }
+
+    if ((decoded.ver || 0) !== (user.sessionVersion || 0)) {
+      user.refreshTokens = [];
+      await user.save();
+      clearAuthCookies(res);
+      return res.status(401).json({ error: 'Session expired. Please login again.' });
+    }
+
+    if (!hasRefreshToken(user, refreshToken)) {
+      clearAuthCookies(res);
+      return res.status(401).json({ error: 'Refresh token revoked or expired' });
+    }
+
+    removeRefreshTokenFromUser(user, refreshToken);
+    issueAuthCookies(res, user);
+    await user.save();
+
+    res.json({ user: { id: user._id, username: user.username, email: user.email } });
+  } catch (error) {
+    clearAuthCookies(res);
+    res.status(401).json({ error: 'Invalid refresh token' });
+  }
+});
+
+app.post('/api/auth/logout', authLimiter, async (req, res) => {
+  try {
+    const refreshToken = getCookieValue(req, REFRESH_COOKIE_NAME);
+    if (refreshToken) {
+      try {
+        const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+        if (decoded?.type === 'refresh' && decoded?.id) {
+          const user = await User.findById(decoded.id);
+          if (user) {
+            removeRefreshTokenFromUser(user, refreshToken);
+            pruneRefreshTokens(user);
+            await user.save();
+          }
+        }
+      } catch {
+        // Intentionally ignore invalid refresh tokens during logout.
+      }
+    }
+
+    clearAuthCookies(res);
+    res.json({ message: 'Logged out' });
+  } catch (error) {
+    clearAuthCookies(res);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/auth/logout-all', authMiddleware, authLimiter, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      clearAuthCookies(res);
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    user.sessionVersion = (user.sessionVersion || 0) + 1;
+    user.refreshTokens = [];
+    await user.save();
+
+    clearAuthCookies(res);
+    res.json({ message: 'Logged out from all sessions' });
+  } catch (error) {
+    clearAuthCookies(res);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -1128,7 +1513,7 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
 });
 
 // Update current user's public profile
-app.patch('/api/users/me', authMiddleware, async (req, res) => {
+app.patch('/api/users/me', authMiddleware, writeLimiter, validateRequest({ body: userProfileUpdateBodySchema }), async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -1148,8 +1533,8 @@ app.patch('/api/users/me', authMiddleware, async (req, res) => {
     };
 
     Object.entries(updatableFields).forEach(([field, maxLength]) => {
-      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
-        const sanitized = sanitizeField(req.body[field], maxLength);
+      if (Object.prototype.hasOwnProperty.call(req.validated.body, field)) {
+        const sanitized = sanitizeField(req.validated.body[field], maxLength);
         if (sanitized !== null) {
           user[field] = sanitized;
         }
@@ -1229,7 +1614,7 @@ app.get('/api/decklists', authMiddleware, async (req, res) => {
 });
 
 // Create decklist
-app.post('/api/decklists', authMiddleware, async (req, res) => {
+app.post('/api/decklists', authMiddleware, writeLimiter, validateRequest({ body: createDecklistBodySchema }), async (req, res) => {
   try {
     const {
       name,
@@ -1240,19 +1625,7 @@ app.post('/api/decklists', authMiddleware, async (req, res) => {
       isPublic = true,
       archetype = '',
       notes = ''
-    } = req.body || {};
-
-    if (!name || typeof name !== 'string' || !name.trim()) {
-      return res.status(400).json({ error: 'Decklist name is required' });
-    }
-
-    if (!gameEnum.includes(game)) {
-      return res.status(400).json({ error: 'Invalid game format' });
-    }
-
-    if (!mainDeck || typeof mainDeck !== 'string' || !mainDeck.trim()) {
-      return res.status(400).json({ error: 'Main deck content is required' });
-    }
+    } = req.validated.body;
 
     const decklist = await Decklist.create({
       owner: req.user.id,
@@ -1274,29 +1647,30 @@ app.post('/api/decklists', authMiddleware, async (req, res) => {
 });
 
 // Update decklist
-app.patch('/api/decklists/:id', authMiddleware, async (req, res) => {
+app.patch('/api/decklists/:id', authMiddleware, writeLimiter, validateRequest({ params: tournamentIdParamsSchema, body: updateDecklistBodySchema }), async (req, res) => {
   try {
-    const decklist = await Decklist.findOne({ _id: req.params.id, owner: req.user.id });
+    const { id } = req.validated.params;
+    const decklist = await Decklist.findOne({ _id: id, owner: req.user.id });
     if (!decklist) return res.status(404).json({ error: 'Decklist not found' });
 
     const updatableFields = ['name', 'game', 'mainDeck', 'extraDeck', 'sideDeck', 'archetype', 'notes'];
 
-    if (Object.prototype.hasOwnProperty.call(req.body, 'isPublic') && typeof req.body.isPublic === 'boolean') {
-      decklist.isPublic = req.body.isPublic;
+    if (Object.prototype.hasOwnProperty.call(req.validated.body, 'isPublic') && typeof req.validated.body.isPublic === 'boolean') {
+      decklist.isPublic = req.validated.body.isPublic;
     }
 
     updatableFields.forEach((field) => {
-      if (!Object.prototype.hasOwnProperty.call(req.body, field)) return;
-      if (typeof req.body[field] !== 'string') return;
+      if (!Object.prototype.hasOwnProperty.call(req.validated.body, field)) return;
+      if (typeof req.validated.body[field] !== 'string') return;
 
       if (field === 'game') {
-        if (gameEnum.includes(req.body[field])) {
-          decklist.game = req.body[field];
+        if (gameEnum.includes(req.validated.body[field])) {
+          decklist.game = req.validated.body[field];
         }
         return;
       }
 
-      decklist[field] = req.body[field].trim();
+      decklist[field] = req.validated.body[field].trim();
     });
 
     if (!decklist.name) {
@@ -1316,9 +1690,10 @@ app.patch('/api/decklists/:id', authMiddleware, async (req, res) => {
 });
 
 // Delete decklist
-app.delete('/api/decklists/:id', authMiddleware, async (req, res) => {
+app.delete('/api/decklists/:id', authMiddleware, writeLimiter, validateRequest({ params: tournamentIdParamsSchema }), async (req, res) => {
   try {
-    const decklist = await Decklist.findOneAndDelete({ _id: req.params.id, owner: req.user.id });
+    const { id } = req.validated.params;
+    const decklist = await Decklist.findOneAndDelete({ _id: id, owner: req.user.id });
     if (!decklist) return res.status(404).json({ error: 'Decklist not found' });
     emitDecklistUpdate('deleted', decklist);
     res.json({ message: 'Decklist deleted' });
@@ -1343,10 +1718,10 @@ app.get('/api/tournaments', async (req, res) => {
 });
 
 // Create tournament
-app.post('/api/tournaments', authMiddleware, async (req, res) => {
+app.post('/api/tournaments', authMiddleware, writeLimiter, validateRequest({ body: createTournamentBodySchema }), async (req, res) => {
   try {
     const tournament = new Tournament({
-      ...req.body,
+      ...req.validated.body,
       createdBy: req.user.id,
       players: [],
       registrations: [],
@@ -1379,16 +1754,17 @@ app.get('/api/tournaments/:id', async (req, res) => {
 });
 
 // Delete tournament (only creator)
-app.delete('/api/tournaments/:id', authMiddleware, async (req, res) => {
+app.delete('/api/tournaments/:id', authMiddleware, writeLimiter, validateRequest({ params: tournamentIdParamsSchema }), async (req, res) => {
   try {
-    const tournament = await Tournament.findById(req.params.id);
+    const { id } = req.validated.params;
+    const tournament = await Tournament.findById(id);
 
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
     if (tournament.createdBy.toString() !== req.user.id) {
       return res.status(403).json({ error: 'Not authorized' });
     }
 
-    await Tournament.findByIdAndDelete(req.params.id);
+    await Tournament.findByIdAndDelete(id);
     emitTournamentUpdate('deleted', tournament);
     res.json({ message: 'Tournament deleted' });
   } catch (error) {
@@ -1397,10 +1773,11 @@ app.delete('/api/tournaments/:id', authMiddleware, async (req, res) => {
 });
 
 // Join tournament
-app.patch('/api/tournaments/:id/join', authMiddleware, async (req, res) => {
+app.patch('/api/tournaments/:id/join', authMiddleware, writeLimiter, validateRequest({ params: tournamentIdParamsSchema, body: joinTournamentBodySchema }), async (req, res) => {
   try {
-    const tournament = await Tournament.findById(req.params.id);
-    const { decklistId } = req.body || {};
+    const { id } = req.validated.params;
+    const tournament = await Tournament.findById(id);
+    const { decklistId } = req.validated.body;
 
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -1415,10 +1792,6 @@ app.patch('/api/tournaments/:id/join', authMiddleware, async (req, res) => {
 
     if (tournament.currentPlayers >= tournament.maxPlayers) {
       return res.status(400).json({ error: 'Tournament is full' });
-    }
-
-    if (!decklistId) {
-      return res.status(400).json({ error: 'Please select a decklist before joining this tournament' });
     }
 
     const decklist = await Decklist.findOne({ _id: decklistId, owner: req.user.id });
@@ -1450,9 +1823,10 @@ app.patch('/api/tournaments/:id/join', authMiddleware, async (req, res) => {
 });
 
 // Leave tournament
-app.patch('/api/tournaments/:id/leave', authMiddleware, async (req, res) => {
+app.patch('/api/tournaments/:id/leave', authMiddleware, writeLimiter, validateRequest({ params: tournamentIdParamsSchema }), async (req, res) => {
   try {
-    const tournament = await Tournament.findById(req.params.id);
+    const { id } = req.validated.params;
+    const tournament = await Tournament.findById(id);
 
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -1483,9 +1857,10 @@ app.patch('/api/tournaments/:id/leave', authMiddleware, async (req, res) => {
 });
 
 // Start tournament and create Round 1 pairings
-app.patch('/api/tournaments/:id/start', authMiddleware, async (req, res) => {
+app.patch('/api/tournaments/:id/start', authMiddleware, matchActionLimiter, validateRequest({ params: tournamentIdParamsSchema }), async (req, res) => {
   try {
-    const tournament = await Tournament.findById(req.params.id);
+    const { id } = req.validated.params;
+    const tournament = await Tournament.findById(id);
 
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -1524,13 +1899,14 @@ app.patch('/api/tournaments/:id/start', authMiddleware, async (req, res) => {
 });
 
 // Report a match result in the active tournament
-app.patch('/api/tournaments/:id/matches/:matchId/report', authMiddleware, async (req, res) => {
+app.patch('/api/tournaments/:id/matches/:matchId/report', authMiddleware, matchActionLimiter, validateRequest({ params: matchIdParamsSchema, body: matchReportBodySchema }), async (req, res) => {
   try {
-    const tournament = await Tournament.findById(req.params.id);
+    const { id, matchId } = req.validated.params;
+    const tournament = await Tournament.findById(id);
 
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
-    const { result } = req.body;
+    const { result } = req.validated.body;
     const allowedResults = tournament.format === 'swiss'
       ? ['player1', 'player2', 'draw']
       : ['player1', 'player2'];
@@ -1544,7 +1920,7 @@ app.patch('/api/tournaments/:id/matches/:matchId/report', authMiddleware, async 
     }
 
     const creatorId = toIdString(tournament.createdBy);
-    const { targetRound, targetMatch } = getMatchLocation(tournament, req.params.matchId);
+    const { targetRound, targetMatch } = getMatchLocation(tournament, matchId);
 
     if (!targetRound || !targetMatch) {
       return res.status(404).json({ error: 'Match not found' });
@@ -1602,9 +1978,10 @@ app.patch('/api/tournaments/:id/matches/:matchId/report', authMiddleware, async 
 });
 
 // Confirm a reported match result
-app.patch('/api/tournaments/:id/matches/:matchId/confirm', authMiddleware, async (req, res) => {
+app.patch('/api/tournaments/:id/matches/:matchId/confirm', authMiddleware, matchActionLimiter, validateRequest({ params: matchIdParamsSchema }), async (req, res) => {
   try {
-    const tournament = await Tournament.findById(req.params.id);
+    const { id, matchId } = req.validated.params;
+    const tournament = await Tournament.findById(id);
 
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -1613,7 +1990,7 @@ app.patch('/api/tournaments/:id/matches/:matchId/confirm', authMiddleware, async
     }
 
     const creatorId = toIdString(tournament.createdBy);
-    const { targetRound, targetMatch } = getMatchLocation(tournament, req.params.matchId);
+    const { targetRound, targetMatch } = getMatchLocation(tournament, matchId);
 
     if (!targetRound || !targetMatch) {
       return res.status(404).json({ error: 'Match not found' });
@@ -1675,9 +2052,10 @@ app.patch('/api/tournaments/:id/matches/:matchId/confirm', authMiddleware, async
 });
 
 // Dispute a reported result
-app.patch('/api/tournaments/:id/matches/:matchId/dispute', authMiddleware, async (req, res) => {
+app.patch('/api/tournaments/:id/matches/:matchId/dispute', authMiddleware, matchActionLimiter, validateRequest({ params: matchIdParamsSchema, body: matchDisputeBodySchema }), async (req, res) => {
   try {
-    const tournament = await Tournament.findById(req.params.id);
+    const { id, matchId } = req.validated.params;
+    const tournament = await Tournament.findById(id);
 
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -1686,7 +2064,7 @@ app.patch('/api/tournaments/:id/matches/:matchId/dispute', authMiddleware, async
     }
 
     const creatorId = toIdString(tournament.createdBy);
-    const { targetRound, targetMatch } = getMatchLocation(tournament, req.params.matchId);
+    const { targetRound, targetMatch } = getMatchLocation(tournament, matchId);
 
     if (!targetRound || !targetMatch) {
       return res.status(404).json({ error: 'Match not found' });
@@ -1713,7 +2091,7 @@ app.patch('/api/tournaments/:id/matches/:matchId/dispute', authMiddleware, async
       return res.status(400).json({ error: 'This match is already disputed' });
     }
 
-    const { reason } = req.body || {};
+    const { reason } = req.validated.body;
     const normalizedReason = reason ? String(reason).trim().slice(0, 500) : 'Result disputed';
     targetMatch.resultStatus = 'disputed';
     targetMatch.disputeReason = normalizedReason;
@@ -1743,9 +2121,10 @@ app.patch('/api/tournaments/:id/matches/:matchId/dispute', authMiddleware, async
 });
 
 // Organizer resolves a disputed or unconfirmed result
-app.patch('/api/tournaments/:id/matches/:matchId/resolve', authMiddleware, async (req, res) => {
+app.patch('/api/tournaments/:id/matches/:matchId/resolve', authMiddleware, matchActionLimiter, validateRequest({ params: matchIdParamsSchema, body: matchResolveBodySchema }), async (req, res) => {
   try {
-    const tournament = await Tournament.findById(req.params.id);
+    const { id, matchId } = req.validated.params;
+    const tournament = await Tournament.findById(id);
 
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -1757,7 +2136,7 @@ app.patch('/api/tournaments/:id/matches/:matchId/resolve', authMiddleware, async
       return res.status(400).json({ error: 'Tournament is not active' });
     }
 
-    const { targetRound, targetMatch } = getMatchLocation(tournament, req.params.matchId);
+    const { targetRound, targetMatch } = getMatchLocation(tournament, matchId);
 
     if (!targetRound || !targetMatch) {
       return res.status(404).json({ error: 'Match not found' });
@@ -1771,7 +2150,7 @@ app.patch('/api/tournaments/:id/matches/:matchId/resolve', authMiddleware, async
       return res.status(400).json({ error: 'Cannot resolve a bye match' });
     }
 
-    const { result, note } = req.body || {};
+    const { result, note } = req.validated.body;
     const allowedResults = tournament.format === 'swiss'
       ? ['player1', 'player2', 'draw']
       : ['player1', 'player2'];
@@ -1820,9 +2199,10 @@ app.patch('/api/tournaments/:id/matches/:matchId/resolve', authMiddleware, async
 });
 
 // Organizer reopens a match for correction
-app.patch('/api/tournaments/:id/matches/:matchId/reopen', authMiddleware, async (req, res) => {
+app.patch('/api/tournaments/:id/matches/:matchId/reopen', authMiddleware, matchActionLimiter, validateRequest({ params: matchIdParamsSchema, body: matchReopenBodySchema }), async (req, res) => {
   try {
-    const tournament = await Tournament.findById(req.params.id);
+    const { id, matchId } = req.validated.params;
+    const tournament = await Tournament.findById(id);
 
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -1834,7 +2214,7 @@ app.patch('/api/tournaments/:id/matches/:matchId/reopen', authMiddleware, async 
       return res.status(400).json({ error: 'Tournament must be active or completed to reopen results' });
     }
 
-    const { targetRound, targetMatch } = getMatchLocation(tournament, req.params.matchId);
+    const { targetRound, targetMatch } = getMatchLocation(tournament, matchId);
 
     if (!targetRound || !targetMatch) {
       return res.status(404).json({ error: 'Match not found' });
@@ -1844,7 +2224,7 @@ app.patch('/api/tournaments/:id/matches/:matchId/reopen', authMiddleware, async 
       return res.status(400).json({ error: 'Cannot reopen a bye match' });
     }
 
-    const { note } = req.body || {};
+    const { note } = req.validated.body;
     const reopenNote = note ? String(note).trim().slice(0, 500) : 'Organizer reopened the match for correction';
 
     const openDisputeEntry = getOpenDisputeHistoryEntry(targetMatch);
@@ -1895,9 +2275,10 @@ app.patch('/api/tournaments/:id/matches/:matchId/reopen', authMiddleware, async 
 });
 
 // Start a generated round
-app.patch('/api/tournaments/:id/rounds/:roundId/start', authMiddleware, async (req, res) => {
+app.patch('/api/tournaments/:id/rounds/:roundId/start', authMiddleware, matchActionLimiter, validateRequest({ params: roundIdParamsSchema }), async (req, res) => {
   try {
-    const tournament = await Tournament.findById(req.params.id);
+    const { id, roundId } = req.validated.params;
+    const tournament = await Tournament.findById(id);
 
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -1909,7 +2290,7 @@ app.patch('/api/tournaments/:id/rounds/:roundId/start', authMiddleware, async (r
       return res.status(400).json({ error: 'Tournament must be active to start rounds' });
     }
 
-    const targetRound = tournament.rounds.id(req.params.roundId);
+    const targetRound = tournament.rounds.id(roundId);
     if (!targetRound) {
       return res.status(404).json({ error: 'Round not found' });
     }
@@ -1947,9 +2328,10 @@ app.patch('/api/tournaments/:id/rounds/:roundId/start', authMiddleware, async (r
 });
 
 // Lock an active round when all results are confirmed
-app.patch('/api/tournaments/:id/rounds/:roundId/lock', authMiddleware, async (req, res) => {
+app.patch('/api/tournaments/:id/rounds/:roundId/lock', authMiddleware, matchActionLimiter, validateRequest({ params: roundIdParamsSchema }), async (req, res) => {
   try {
-    const tournament = await Tournament.findById(req.params.id);
+    const { id, roundId } = req.validated.params;
+    const tournament = await Tournament.findById(id);
 
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -1961,7 +2343,7 @@ app.patch('/api/tournaments/:id/rounds/:roundId/lock', authMiddleware, async (re
       return res.status(400).json({ error: 'Tournament must be active to lock rounds' });
     }
 
-    const targetRound = tournament.rounds.id(req.params.roundId);
+    const targetRound = tournament.rounds.id(roundId);
     if (!targetRound) {
       return res.status(404).json({ error: 'Round not found' });
     }
@@ -1988,9 +2370,10 @@ app.patch('/api/tournaments/:id/rounds/:roundId/lock', authMiddleware, async (re
 });
 
 // Generate next Swiss round once current round is complete
-app.post('/api/tournaments/:id/rounds/next', authMiddleware, async (req, res) => {
+app.post('/api/tournaments/:id/rounds/next', authMiddleware, matchActionLimiter, validateRequest({ params: tournamentIdParamsSchema }), async (req, res) => {
   try {
-    const tournament = await Tournament.findById(req.params.id);
+    const { id } = req.validated.params;
+    const tournament = await Tournament.findById(id);
 
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -2059,9 +2442,10 @@ app.post('/api/tournaments/:id/rounds/next', authMiddleware, async (req, res) =>
 });
 
 // Complete tournament
-app.patch('/api/tournaments/:id/complete', authMiddleware, async (req, res) => {
+app.patch('/api/tournaments/:id/complete', authMiddleware, matchActionLimiter, validateRequest({ params: tournamentIdParamsSchema }), async (req, res) => {
   try {
-    const tournament = await Tournament.findById(req.params.id);
+    const { id } = req.validated.params;
+    const tournament = await Tournament.findById(id);
 
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -2121,9 +2505,10 @@ app.patch('/api/tournaments/:id/complete', authMiddleware, async (req, res) => {
 });
 
 // Check in to a tournament
-app.post('/api/tournaments/:id/checkin', authMiddleware, async (req, res) => {
+app.post('/api/tournaments/:id/checkin', authMiddleware, writeLimiter, validateRequest({ params: tournamentIdParamsSchema }), async (req, res) => {
   try {
-    const tournament = await Tournament.findById(req.params.id);
+    const { id } = req.validated.params;
+    const tournament = await Tournament.findById(id);
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
     const hasJoined = tournament.players.some((p) => toIdString(p) === req.user.id);
@@ -2155,9 +2540,10 @@ app.post('/api/tournaments/:id/checkin', authMiddleware, async (req, res) => {
 });
 
 // Start top cut from Swiss standings
-app.post('/api/tournaments/:id/start-top-cut', authMiddleware, async (req, res) => {
+app.post('/api/tournaments/:id/start-top-cut', authMiddleware, matchActionLimiter, validateRequest({ params: tournamentIdParamsSchema }), async (req, res) => {
   try {
-    const tournament = await Tournament.findById(req.params.id);
+    const { id } = req.validated.params;
+    const tournament = await Tournament.findById(id);
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
     if (toIdString(tournament.createdBy) !== req.user.id) {
@@ -2248,7 +2634,6 @@ app.post('/api/tournaments/:id/start-top-cut', authMiddleware, async (req, res) 
   }
 });
 
-// Start server
-server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+}
+
+module.exports = { registerApi, ensureMongoConnection };

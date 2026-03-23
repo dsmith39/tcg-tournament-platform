@@ -1,5 +1,5 @@
-const API_URL = 'http://localhost:5000/api';
-const YGO_CARD_API_URL = 'https://db.ygoprodeck.com/api/v7/cardinfo.php';
+const API_URL = '/api';
+const YGO_CARD_API_URL = '/api/v7/cardinfo.php';
 let currentUser = null;
 let currentFormat = 'all';
 let sectionHistory = [];
@@ -25,6 +25,268 @@ const detailedCardInfoCache = new Map();
 let liveSocket = null;
 let socketConnected = false;
 let currentProfileUserId = null;
+let pendingAppRequests = 0;
+let loadingRevealTimer = null;
+const DEFAULT_LOADING_MESSAGE = 'Loading data...';
+const INVALID_STORED_TOKEN_VALUES = new Set(['', 'undefined', 'null']);
+let activeSessionRefreshPromise = null;
+
+function ensureLoadingScreenElements() {
+    let loadingScreen = document.getElementById('loading-screen');
+    if (!loadingScreen) {
+        loadingScreen = document.createElement('div');
+        loadingScreen.id = 'loading-screen';
+        loadingScreen.className = 'loading-screen';
+        loadingScreen.setAttribute('aria-live', 'polite');
+        loadingScreen.setAttribute('aria-busy', 'true');
+        loadingScreen.setAttribute('role', 'status');
+        loadingScreen.setAttribute('aria-hidden', 'true');
+        loadingScreen.innerHTML = `
+            <div class="loading-content">
+                <div class="loading-spinner" aria-hidden="true"></div>
+                <p id="loading-screen-message">${DEFAULT_LOADING_MESSAGE}</p>
+            </div>
+        `;
+        document.body.appendChild(loadingScreen);
+    }
+
+    const loadingMessage = document.getElementById('loading-screen-message');
+    if (!loadingMessage) {
+        const message = document.createElement('p');
+        message.id = 'loading-screen-message';
+        message.textContent = DEFAULT_LOADING_MESSAGE;
+        loadingScreen.querySelector('.loading-content')?.appendChild(message);
+    }
+}
+
+function ensureDecklistArchetypeField() {
+    const form = document.getElementById('decklist-form');
+    if (!form || document.getElementById('decklist-archetype')) return;
+
+    const nameInput = document.getElementById('decklist-name');
+    const nameGroup = nameInput?.closest('.form-group');
+    const archetypeGroup = document.createElement('div');
+    archetypeGroup.className = 'form-group';
+    archetypeGroup.innerHTML = `
+        <label for="decklist-archetype">Archetype Tag (optional)</label>
+        <input type="text" id="decklist-archetype" placeholder="e.g., Blue-Eyes, Dragon Link">
+    `;
+
+    if (nameGroup && nameGroup.parentElement === form) {
+        nameGroup.insertAdjacentElement('afterend', archetypeGroup);
+    } else {
+        form.prepend(archetypeGroup);
+    }
+}
+
+function setLoadingScreenMessage(message = DEFAULT_LOADING_MESSAGE) {
+    ensureLoadingScreenElements();
+    const loadingMessage = document.getElementById('loading-screen-message');
+    if (!loadingMessage) return;
+    loadingMessage.textContent = message || DEFAULT_LOADING_MESSAGE;
+}
+
+function setLoadingScreenAria(isVisible) {
+    ensureLoadingScreenElements();
+    const loadingScreen = document.getElementById('loading-screen');
+    if (!loadingScreen) return;
+    loadingScreen.setAttribute('aria-hidden', isVisible ? 'false' : 'true');
+}
+
+function beginGlobalLoading(options = {}) {
+    const immediate = options.immediate === true;
+    if (typeof options.message === 'string' && options.message.trim()) {
+        setLoadingScreenMessage(options.message.trim());
+    }
+
+    pendingAppRequests += 1;
+
+    if (document.body.classList.contains('loading')) {
+        return;
+    }
+
+    if (immediate) {
+        if (loadingRevealTimer) {
+            clearTimeout(loadingRevealTimer);
+            loadingRevealTimer = null;
+        }
+
+        document.body.classList.add('loading');
+        setLoadingScreenAria(true);
+        return;
+    }
+
+    if (!loadingRevealTimer) {
+        loadingRevealTimer = setTimeout(() => {
+            if (pendingAppRequests > 0) {
+                document.body.classList.add('loading');
+                setLoadingScreenAria(true);
+            }
+            loadingRevealTimer = null;
+        }, 120);
+    }
+}
+
+function endGlobalLoading() {
+    pendingAppRequests = Math.max(0, pendingAppRequests - 1);
+    if (pendingAppRequests > 0) {
+        return;
+    }
+
+    if (loadingRevealTimer) {
+        clearTimeout(loadingRevealTimer);
+        loadingRevealTimer = null;
+    }
+
+    document.body.classList.remove('loading');
+    setLoadingScreenAria(false);
+    setLoadingScreenMessage();
+}
+
+function normalizeStoredToken(token) {
+    if (typeof token !== 'string') {
+        return null;
+    }
+
+    const trimmedToken = token.trim();
+    if (INVALID_STORED_TOKEN_VALUES.has(trimmedToken)) {
+        return null;
+    }
+
+    return trimmedToken;
+}
+
+function getStoredAccessToken() {
+    const token = normalizeStoredToken(localStorage.getItem('token'));
+    if (!token) {
+        localStorage.removeItem('token');
+        return null;
+    }
+
+    return token;
+}
+
+function persistAccessToken(token) {
+    const normalizedToken = normalizeStoredToken(token);
+    if (!normalizedToken) {
+        localStorage.removeItem('token');
+        return null;
+    }
+
+    localStorage.setItem('token', normalizedToken);
+    return normalizedToken;
+}
+
+function clearStoredAccessToken() {
+    localStorage.removeItem('token');
+}
+
+function getRequestUrl(requestTarget) {
+    if (typeof requestTarget === 'string') {
+        return new URL(requestTarget, window.location.origin);
+    }
+
+    if (requestTarget && typeof requestTarget.url === 'string') {
+        return new URL(requestTarget.url, window.location.origin);
+    }
+
+    return null;
+}
+
+function shouldAttemptSessionRefresh(requestTarget) {
+    const url = getRequestUrl(requestTarget);
+    if (!url || url.origin !== window.location.origin || !url.pathname.startsWith('/api/')) {
+        return false;
+    }
+
+    return ![
+        '/api/auth/login',
+        '/api/auth/register',
+        '/api/auth/refresh',
+        '/api/auth/logout',
+        '/api/auth/logout-all'
+    ].includes(url.pathname);
+}
+
+async function refreshAuthenticatedSession() {
+    if (!activeSessionRefreshPromise) {
+        activeSessionRefreshPromise = nativeFetch(`${API_URL}/auth/refresh`, {
+            method: 'POST',
+            credentials: 'same-origin'
+        })
+            .then((response) => response.ok)
+            .catch(() => false)
+            .finally(() => {
+                activeSessionRefreshPromise = null;
+            });
+    }
+
+    return activeSessionRefreshPromise;
+}
+
+function isAppApiRequest(requestTarget) {
+    if (!requestTarget) return false;
+
+    if (typeof requestTarget === 'string') {
+        return requestTarget.startsWith(API_URL);
+    }
+
+    if (typeof requestTarget.url === 'string') {
+        return requestTarget.url.startsWith(API_URL);
+    }
+
+    return false;
+}
+
+const nativeFetch = window.fetch.bind(window);
+window.fetch = async (input, init) => {
+    const suppressLoading = !!(init && typeof init === 'object' && init.suppressLoading === true);
+    const requestInit = suppressLoading ? { ...init } : init;
+    if (requestInit && typeof requestInit === 'object') {
+        delete requestInit.suppressLoading;
+    }
+
+    const isApiRequest = isAppApiRequest(input);
+    let normalizedInit = requestInit;
+
+    if (isApiRequest) {
+        normalizedInit = normalizedInit && typeof normalizedInit === 'object'
+            ? { ...normalizedInit }
+            : {};
+
+        const headers = new Headers(normalizedInit.headers || undefined);
+        headers.delete('Authorization');
+        normalizedInit.headers = headers;
+
+        if (!normalizedInit.credentials) {
+            normalizedInit.credentials = 'same-origin';
+        }
+    }
+
+    const shouldTrack = isApiRequest && !suppressLoading;
+    if (shouldTrack) {
+        beginGlobalLoading();
+    }
+
+    try {
+        let response = await nativeFetch(input, normalizedInit);
+
+        if (response.status === 401 && shouldAttemptSessionRefresh(input)) {
+            const refreshed = await refreshAuthenticatedSession();
+            if (refreshed) {
+                response = await nativeFetch(input, normalizedInit);
+            } else {
+                clearStoredAccessToken();
+            }
+        }
+
+        return response;
+    } finally {
+        if (shouldTrack) {
+            endGlobalLoading();
+        }
+    }
+};
 
 function getEntityId(entity) {
     if (!entity) return null;
@@ -48,6 +310,85 @@ function escapeHtml(value) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+function normalizeCardImageUrl(imageUrl) {
+    const rawUrl = String(imageUrl || '').trim();
+    if (!rawUrl) return '';
+
+    let parsedUrl;
+    try {
+        parsedUrl = new URL(rawUrl, window.location.origin);
+    } catch {
+        return rawUrl;
+    }
+
+    if (parsedUrl.origin === window.location.origin && parsedUrl.pathname.startsWith('/api/v7/')) {
+        return parsedUrl.toString();
+    }
+
+    const match = parsedUrl.pathname.match(/\/images\/cards(?:_(small|cropped))?\/(\d+)\.jpg$/i);
+    if (!match) {
+        return rawUrl;
+    }
+
+    const size = match[1] || 'full';
+    const cardId = match[2];
+    const localUrl = new URL(`${API_URL}/v7/card-image/${encodeURIComponent(cardId)}`, window.location.origin);
+    if (size !== 'full') {
+        localUrl.searchParams.set('size', size);
+    }
+
+    return localUrl.toString();
+}
+
+function getPrimaryCardImageUrl(card) {
+    return normalizeCardImageUrl(
+        card?.card_images?.[0]?.image_url_small
+        || card?.card_images?.[0]?.image_url
+        || ''
+    );
+}
+
+function getInitials(username) {
+    const safe = String(username || '').trim();
+    if (!safe) return '??';
+
+    const parts = safe.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+        return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    }
+
+    return safe.slice(0, 2).toUpperCase();
+}
+
+function getAvatarHTML(user, size = '40px') {
+    if (!user) return '';
+    const username = typeof user === 'string' ? user : (user.username || 'User');
+    const avatarUrl = typeof user === 'object' ? user.avatarUrl : null;
+    const initials = getInitials(username);
+    
+    if (avatarUrl) {
+        return `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(username)}" style="width:${size}; height:${size}; border-radius:50%; object-fit:cover; background:var(--primary-color);">`;
+    }
+    
+    const hue = username.charCodeAt(0) * 137.508 % 360;
+    const color = `hsl(${hue}, 70%, 60%)`;
+    return `<div style="width:${size}; height:${size}; border-radius:50%; background:${color}; display:flex; align-items:center; justify-content:center; color:white; font-weight:700; font-size:${parseInt(size)/2}px;">${initials}</div>`;
+}
+
+function formatRoundTimeRemaining(timerStartedAt, roundTimerMinutes) {
+    if (!timerStartedAt || !roundTimerMinutes || roundTimerMinutes <= 0) return '';
+    const startTime = new Date(timerStartedAt).getTime();
+    const endTime = startTime + roundTimerMinutes * 60 * 1000;
+    const now = Date.now();
+    const remaining = endTime - now;
+    
+    if (remaining <= 0) return '<span style="color: var(--danger); font-weight: 700;">⏱ Time\'s Up!</span>';
+    
+    const minutes = Math.floor(remaining / 60000);
+    const seconds = Math.floor((remaining % 60000) / 1000);
+    return `<span style="color: var(--primary-color); font-weight: 700;">⏱ ${minutes}:${seconds.toString().padStart(2, '0')}</span>`;
 }
 
 function renderNotificationsPanel() {
@@ -200,7 +541,7 @@ function initializeRealtimeSocket() {
         return;
     }
 
-    liveSocket = window.io('http://localhost:5000', {
+    liveSocket = window.io(undefined, {
         transports: ['websocket', 'polling']
     });
 
@@ -218,19 +559,25 @@ function initializeRealtimeSocket() {
 
     liveSocket.on('tournaments:updated', async (event) => {
         if (document.getElementById('dashboard').classList.contains('active') && currentUser) {
-            await renderTournaments();
+            await renderTournaments({ suppressLoading: true });
         }
 
         if (document.getElementById('landing').classList.contains('active') && !currentUser) {
-            await renderLandingTournaments();
+            await renderLandingTournaments({ suppressLoading: true });
         }
 
         if (currentTournamentDetailId && String(currentTournamentDetailId) === String(event.tournamentId)) {
-            await viewTournament(currentTournamentDetailId, { refresh: true });
+            await viewTournament(currentTournamentDetailId, {
+                refresh: true,
+                suppressLoading: true
+            });
         }
 
         if (document.getElementById('user-profile').classList.contains('active') && currentProfileUserId) {
-            await viewUserProfile(currentProfileUserId, { refresh: true });
+            await viewUserProfile(currentProfileUserId, {
+                refresh: true,
+                suppressLoading: true
+            });
         }
 
         addNotification(`${describeTournamentSocketEvent(event)}: ${event.name || 'Tournament'}`, 'info', true);
@@ -238,15 +585,18 @@ function initializeRealtimeSocket() {
 
     liveSocket.on('decklists:updated', async (event) => {
         if (document.getElementById('decklists').classList.contains('active') && currentUser) {
-            await renderDecklists();
+            await renderDecklists({ suppressLoading: true });
         }
 
         if (document.getElementById('landing').classList.contains('active')) {
-            await renderLandingDecklists();
+            await renderLandingDecklists({ suppressLoading: true });
         }
 
         if (currentDecklistDetail && String(getEntityId(currentDecklistDetail)) === String(event.decklistId)) {
-            await viewDecklist(event.decklistId);
+            await viewDecklist(event.decklistId, {
+                refresh: true,
+                suppressLoading: true
+            });
         }
 
         addNotification(`${describeDecklistSocketEvent(event)}: ${event.name || 'Decklist'}`, 'info', true);
@@ -328,20 +678,45 @@ function triggerYdkImport() {
     }
 }
 
-async function importDeckFromTextPrompt() {
+async function importDeckFromTextPrompt(buttonEl = null) {
     const pasted = prompt('Paste your deck text list. Use section headers #main, #extra, !side (optional):', '#main\n\n#extra\n\n!side\n');
     if (pasted === null) return;
 
+    const importTextBtn = buttonEl || document.querySelector('button[onclick^="importDeckFromTextPrompt"]');
+    const originalImportText = importTextBtn ? importTextBtn.textContent : 'Import Text List';
+    if (importTextBtn) {
+        importTextBtn.disabled = true;
+        importTextBtn.textContent = 'Importing...';
+    }
+
+    beginGlobalLoading({
+        immediate: true,
+        message: 'Importing text deck list...'
+    });
+
     const parsed = parseYdkContentToSections(pasted);
 
-    setDeckCardFeedback('Importing deck text...', 'success');
-    deckBuilder = {
-        main: await hydrateDeckSectionFromText(parsed.main.join('\n')),
-        extra: await hydrateDeckSectionFromText(parsed.extra.join('\n')),
-        side: await hydrateDeckSectionFromText(parsed.side.join('\n'))
-    };
-    renderDeckBuilder();
-    setDeckCardFeedback('Deck text imported.', 'success');
+    try {
+        setDeckCardFeedback('Importing deck text...', 'success');
+        setLoadingScreenMessage('Resolving card data...');
+        deckBuilder = {
+            main: await hydrateDeckSectionFromText(parsed.main.join('\n')),
+            extra: await hydrateDeckSectionFromText(parsed.extra.join('\n')),
+            side: await hydrateDeckSectionFromText(parsed.side.join('\n'))
+        };
+        renderDeckBuilder();
+        setDeckCardFeedback('Deck text imported.', 'success');
+        addNotification('Deck text list imported.', 'success');
+    } catch (error) {
+        setDeckCardFeedback('Failed to import deck text.');
+        addNotification('Failed to import deck text list.', 'warning');
+    } finally {
+        endGlobalLoading();
+        if (importTextBtn) {
+            importTextBtn.disabled = false;
+            importTextBtn.textContent = originalImportText;
+        }
+    }
 }
 
 function exportCurrentDeckAsYdk() {
@@ -403,9 +778,7 @@ async function exportDecklistByIdAsYdk(decklistId) {
 }
 
 function getDecklistShareUrl(decklistId) {
-    const url = new URL(window.location.href);
-    url.searchParams.set('deck', decklistId);
-    return url.toString();
+    return `${window.location.origin}/decklists/${encodeURIComponent(decklistId)}`;
 }
 
 async function copyDecklistShareLink(decklistId) {
@@ -586,7 +959,7 @@ function applyCardSuggestion(index) {
 
     deckBuilder[section].push({
         name: suggestion.name,
-        imageUrl: suggestion.imageUrl || ''
+        imageUrl: normalizeCardImageUrl(suggestion.imageUrl)
     });
 
     renderDeckBuilder();
@@ -634,9 +1007,7 @@ async function fetchCardSuggestions(query) {
 
             const cardInfo = {
                 name,
-                imageUrl: card.card_images?.[0]?.image_url_small
-                    || card.card_images?.[0]?.image_url
-                    || ''
+                imageUrl: getPrimaryCardImageUrl(card)
             };
 
             if (key.startsWith(lowerQuery)) {
@@ -709,9 +1080,7 @@ async function fetchCardByName(cardName) {
 
     const cardInfo = {
         name: card.name,
-        imageUrl: card.card_images?.[0]?.image_url_small
-            || card.card_images?.[0]?.image_url
-            || '',
+        imageUrl: getPrimaryCardImageUrl(card),
         banTcg: card?.banlist_info?.ban_tcg || null
     };
 
@@ -743,9 +1112,7 @@ async function fetchCardByPasscode(passcode) {
 
     const cardInfo = {
         name: card.name,
-        imageUrl: card.card_images?.[0]?.image_url_small
-            || card.card_images?.[0]?.image_url
-            || '',
+        imageUrl: getPrimaryCardImageUrl(card),
         banTcg: card?.banlist_info?.ban_tcg || null
     };
 
@@ -784,7 +1151,7 @@ function groupDeckCardsForDisplay(cards) {
         if (!grouped.has(name)) {
             grouped.set(name, {
                 name,
-                imageUrl: card?.imageUrl || '',
+                imageUrl: normalizeCardImageUrl(card?.imageUrl),
                 quantity: 0
             });
         }
@@ -792,7 +1159,7 @@ function groupDeckCardsForDisplay(cards) {
         const entry = grouped.get(name);
         entry.quantity += 1;
         if (!entry.imageUrl && card?.imageUrl) {
-            entry.imageUrl = card.imageUrl;
+            entry.imageUrl = normalizeCardImageUrl(card.imageUrl);
         }
     });
 
@@ -1010,7 +1377,7 @@ function incrementCardInDeck(section, cardName, imageUrl) {
         setDeckCardFeedback(`You already have ${MAX_CARD_COPIES} copies of ${cardName} in your deck.`);
         return;
     }
-    deckBuilder[normalized].push({ name: cardName, imageUrl: imageUrl || '' });
+    deckBuilder[normalized].push({ name: cardName, imageUrl: normalizeCardImageUrl(imageUrl) });
     renderDeckBuilder();
 }
 
@@ -1095,6 +1462,139 @@ function createUserLink(user, fallback = 'Unknown') {
     return `<button class="user-link" onclick="viewUserProfile('${userId}')">${username}</button>`;
 }
 
+function updateBrowserUrl(path, options = {}) {
+    const replaceHistory = options.replaceHistory === true;
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+    if (currentPath === normalizedPath) {
+        return;
+    }
+
+    if (replaceHistory) {
+        window.history.replaceState({}, '', normalizedPath);
+        return;
+    }
+
+    window.history.pushState({}, '', normalizedPath);
+}
+
+function getPathForSection(sectionId) {
+    if (sectionId === 'tournament-detail' && currentTournamentDetailId) {
+        return `/tournaments/${encodeURIComponent(String(currentTournamentDetailId))}`;
+    }
+
+    if (sectionId === 'decklist-detail') {
+        const decklistId = getEntityId(currentDecklistDetail);
+        if (decklistId) {
+            return `/decklists/${encodeURIComponent(String(decklistId))}`;
+        }
+    }
+
+    if (sectionId === 'user-profile' && currentProfileUserId) {
+        return `/users/${encodeURIComponent(String(currentProfileUserId))}`;
+    }
+
+    const map = {
+        landing: '/',
+        auth: '/auth/login',
+        dashboard: '/dashboard',
+        create: '/tournaments/create',
+        decklists: '/decklists',
+        'tournament-detail': '/dashboard',
+        'decklist-detail': '/decklists',
+        'user-profile': currentUser ? '/dashboard' : '/'
+    };
+
+    return map[sectionId] || '/';
+}
+
+function syncUrlToSection(sectionId, options = {}) {
+    updateBrowserUrl(getPathForSection(sectionId), options);
+}
+
+function getRouteFromLocation() {
+    const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+
+    if (pathname === '/') return { type: 'landing' };
+    if (pathname === '/auth' || pathname === '/auth/login') return { type: 'auth', mode: 'login' };
+    if (pathname === '/auth/signup') return { type: 'auth', mode: 'signup' };
+    if (pathname === '/dashboard') return { type: 'dashboard' };
+    if (pathname === '/tournaments/create') return { type: 'create' };
+    if (pathname === '/decklists') return { type: 'decklists' };
+
+    const tournamentMatch = pathname.match(/^\/tournaments\/([^/]+)$/);
+    if (tournamentMatch) return { type: 'tournament-detail', id: decodeURIComponent(tournamentMatch[1]) };
+
+    const decklistMatch = pathname.match(/^\/decklists\/([^/]+)$/);
+    if (decklistMatch) return { type: 'decklist-detail', id: decodeURIComponent(decklistMatch[1]) };
+
+    const userMatch = pathname.match(/^\/users\/([^/]+)$/);
+    if (userMatch) return { type: 'user-profile', id: decodeURIComponent(userMatch[1]) };
+
+    return { type: 'not-found' };
+}
+
+async function renderRouteFromLocation(options = {}) {
+    const replaceHistory = options.replaceHistory === true;
+    const route = getRouteFromLocation();
+
+    if (route.type === 'landing') {
+        showLanding({ updateUrl: false });
+        return;
+    }
+
+    if (route.type === 'auth') {
+        goToAuth(route.mode || 'login', { updateUrl: false });
+        return;
+    }
+
+    if (route.type === 'dashboard') {
+        if (!currentUser) {
+            goToAuth('login', { replaceHistory: true });
+            return;
+        }
+        switchSection('dashboard', { updateUrl: false, skipAuthPrompt: true });
+        return;
+    }
+
+    if (route.type === 'create') {
+        if (!currentUser) {
+            goToAuth('login', { replaceHistory: true });
+            return;
+        }
+        switchSection('create', { updateUrl: false, skipAuthPrompt: true });
+        return;
+    }
+
+    if (route.type === 'decklists') {
+        if (!currentUser) {
+            goToAuth('login', { replaceHistory: true });
+            return;
+        }
+        switchSection('decklists', { updateUrl: false, skipAuthPrompt: true });
+        return;
+    }
+
+    if (route.type === 'tournament-detail' && route.id) {
+        await viewTournament(route.id, { updateUrl: false });
+        return;
+    }
+
+    if (route.type === 'decklist-detail' && route.id) {
+        await viewDecklist(route.id, { updateUrl: false });
+        return;
+    }
+
+    if (route.type === 'user-profile' && route.id) {
+        await viewUserProfile(route.id, { updateUrl: false });
+        return;
+    }
+
+    showLanding({ updateUrl: false });
+    updateBrowserUrl('/', { replaceHistory: true });
+}
+
 function getActiveSectionId() {
     const activeSection = document.querySelector('section.active');
     return activeSection ? activeSection.id : null;
@@ -1149,147 +1649,21 @@ function goBack() {
         }
 
         activateSection(previousSection, false);
+        syncUrlToSection(previousSection, { replaceHistory: true });
         return;
     }
 
     if (currentUser) {
         activateSection('dashboard', false);
+        syncUrlToSection('dashboard', { replaceHistory: true });
     } else {
-        showLanding();
+        showLanding({ replaceHistory: true });
     }
 }
 
-async function init() {
-    const token = localStorage.getItem('token');
-    if (token) {
-        try {
-            const response = await fetch(`${API_URL}/auth/me`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (response.ok) {
-                currentUser = await response.json();
-                showDashboard();
-                await openDeepLinkedDeckIfPresent();
-                return;
-            }
-        } catch (error) {
-            console.log('Token expired, clearing...');
-        }
-        localStorage.removeItem('token');
-    }
-    showLanding();
-    await openDeepLinkedDeckIfPresent();
-}
-
-async function login() {
-    const email = document.getElementById('login-email').value;
-    const password = document.getElementById('login-password').value;
-    const errorDiv = document.getElementById('login-error');
-
-    try {
-        errorDiv.textContent = '';
-        document.body.classList.add('loading');
-
-        const response = await fetch(`${API_URL}/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password })
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-            localStorage.setItem('token', data.token);
-            currentUser = data.user;
-            showDashboard();
-            await openDeepLinkedDeckIfPresent();
-        } else {
-            errorDiv.textContent = data.error || 'Login failed';
-        }
-    } catch (error) {
-        errorDiv.textContent = 'Network error - backend running?';
-    } finally {
-        document.body.classList.remove('loading');
-    }
-}
-
-async function signup() {
-    const username = document.getElementById('signup-username').value;
-    const email = document.getElementById('signup-email').value;
-    const password = document.getElementById('signup-password').value;
-    const errorDiv = document.getElementById('signup-error');
-
-    try {
-        errorDiv.textContent = '';
-        document.body.classList.add('loading');
-
-        const response = await fetch(`${API_URL}/auth/register`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, email, password })
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-            localStorage.setItem('token', data.token);
-            currentUser = data.user;
-            showDashboard();
-            await openDeepLinkedDeckIfPresent();
-        } else {
-            errorDiv.textContent = data.error || 'Signup failed';
-        }
-    } catch (error) {
-        errorDiv.textContent = 'Network error - backend running?';
-    } finally {
-        document.body.classList.remove('loading');
-    }
-}
-
-function logout() {
-    localStorage.removeItem('token');
-    currentUser = null;
-    sectionHistory = [];
-    myDecklists = [];
-    editingDecklistId = null;
-    currentTournamentDetailId = null;
-    currentProfileUserId = null;
-    showLanding();
-}
-
-function hidePrivateNav() {
-    document.querySelectorAll('#nav-menu button, .user-info').forEach((el) => {
-        el.style.display = 'none';
-    });
-}
-
-function showLanding() {
-    activateSection('landing', false);
-    hidePrivateNav();
-    const notificationPanel = document.getElementById('notifications-panel');
-    if (notificationPanel) {
-        notificationPanel.style.display = 'none';
-    }
-}
-
-function showAuth() {
-    activateSection('auth', false);
-    hidePrivateNav();
-}
-
-function goToAuth(mode = 'login') {
-    showAuth();
-    if (mode === 'signup') {
-        showSignup();
-        return;
-    }
-    showLogin();
-}
-
-function showDashboard() {
+function applyAuthenticatedNavState() {
     if (!currentUser) {
-        showLanding();
+        hidePrivateNav();
         return;
     }
 
@@ -1306,46 +1680,240 @@ function showDashboard() {
     if (createUserLinkEl) {
         createUserLinkEl.textContent = currentUser.username;
     }
+}
+
+async function init() {
+    getStoredAccessToken();
+
+    try {
+        const response = await fetch(`${API_URL}/auth/me`, {
+            suppressLoading: true
+        });
+
+        if (response.ok) {
+            currentUser = await response.json();
+            clearStoredAccessToken();
+            applyAuthenticatedNavState();
+        } else {
+            clearStoredAccessToken();
+        }
+    } catch (error) {
+        console.log('Unable to restore authenticated session.');
+        clearStoredAccessToken();
+    }
+
+    if (!currentUser) {
+        hidePrivateNav();
+    }
+    await renderRouteFromLocation({ replaceHistory: true });
+}
+
+async function login(buttonEl = null) {
+    const email = document.getElementById('login-email').value;
+    const password = document.getElementById('login-password').value;
+    const errorDiv = document.getElementById('login-error');
+    const loginBtn = buttonEl || document.querySelector('#login-form button.btn');
+    const originalLoginText = loginBtn ? loginBtn.textContent : 'Login';
+
+    if (loginBtn) {
+        loginBtn.disabled = true;
+        loginBtn.textContent = 'Logging in...';
+    }
+
+    try {
+        errorDiv.textContent = '';
+        beginGlobalLoading({
+            immediate: true,
+            message: 'Logging in...'
+        });
+
+        const response = await fetch(`${API_URL}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            persistAccessToken(data.token);
+            currentUser = data.user;
+            setLoadingScreenMessage('Loading dashboard...');
+            showDashboard();
+            await openDeepLinkedDeckIfPresent();
+        } else {
+            errorDiv.textContent = data.error || 'Login failed';
+        }
+    } catch (error) {
+        errorDiv.textContent = 'Network error - backend running?';
+    } finally {
+        endGlobalLoading();
+        if (loginBtn) {
+            loginBtn.disabled = false;
+            loginBtn.textContent = originalLoginText;
+        }
+    }
+}
+
+async function signup(buttonEl = null) {
+    const username = document.getElementById('signup-username').value;
+    const email = document.getElementById('signup-email').value;
+    const password = document.getElementById('signup-password').value;
+    const errorDiv = document.getElementById('signup-error');
+    const signupBtn = buttonEl || document.querySelector('#signup-form button.btn');
+    const originalSignupText = signupBtn ? signupBtn.textContent : 'Sign Up';
+
+    if (signupBtn) {
+        signupBtn.disabled = true;
+        signupBtn.textContent = 'Creating account...';
+    }
+
+    try {
+        errorDiv.textContent = '';
+        beginGlobalLoading({
+            immediate: true,
+            message: 'Creating account...'
+        });
+
+        const response = await fetch(`${API_URL}/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, email, password })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            persistAccessToken(data.token);
+            currentUser = data.user;
+            setLoadingScreenMessage('Loading dashboard...');
+            showDashboard();
+            await openDeepLinkedDeckIfPresent();
+        } else {
+            errorDiv.textContent = data.error || 'Signup failed';
+        }
+    } catch (error) {
+        errorDiv.textContent = 'Network error - backend running?';
+    } finally {
+        endGlobalLoading();
+        if (signupBtn) {
+            signupBtn.disabled = false;
+            signupBtn.textContent = originalSignupText;
+        }
+    }
+}
+
+async function logout() {
+    try {
+        await fetch(`${API_URL}/auth/logout`, {
+            method: 'POST',
+            suppressLoading: true
+        });
+    } catch (error) {
+        console.log('Unable to notify server about logout. Clearing local session only.');
+    }
+
+    clearStoredAccessToken();
+    currentUser = null;
+    sectionHistory = [];
+    myDecklists = [];
+    editingDecklistId = null;
+    currentTournamentDetailId = null;
+    currentProfileUserId = null;
+    showLanding();
+}
+
+function hidePrivateNav() {
+    document.querySelectorAll('#nav-menu button, .user-info').forEach((el) => {
+        el.style.display = 'none';
+    });
+}
+
+function showLanding(options = {}) {
+    activateSection('landing', false);
+    hidePrivateNav();
+    if (options.updateUrl !== false) {
+        syncUrlToSection('landing', { replaceHistory: options.replaceHistory === true });
+    }
+    const notificationPanel = document.getElementById('notifications-panel');
+    if (notificationPanel) {
+        notificationPanel.style.display = 'none';
+    }
+}
+
+function showAuth(options = {}) {
+    activateSection('auth', false);
+    hidePrivateNav();
+    if (options.updateUrl !== false) {
+        syncUrlToSection('auth', { replaceHistory: options.replaceHistory === true });
+    }
+}
+
+function goToAuth(mode = 'login', options = {}) {
+    showAuth({ updateUrl: false, replaceHistory: options.replaceHistory === true });
+    if (mode === 'signup') {
+        showSignup({ updateUrl: false });
+        if (options.updateUrl !== false) {
+            updateBrowserUrl('/auth/signup', { replaceHistory: options.replaceHistory === true });
+        }
+        return;
+    }
+    showLogin({ updateUrl: false });
+    if (options.updateUrl !== false) {
+        updateBrowserUrl('/auth/login', { replaceHistory: options.replaceHistory === true });
+    }
+}
+
+function showDashboard() {
+    if (!currentUser) {
+        showLanding();
+        return;
+    }
+
+    applyAuthenticatedNavState();
 
     switchSection('dashboard');
     renderTournaments();
 }
 
-async function openDeepLinkedDeckIfPresent() {
-    try {
-        const url = new URL(window.location.href);
-        const deckId = url.searchParams.get('deck');
-        if (deckId) {
-            await viewDecklist(deckId);
-        }
-    } catch (error) {
-        // Ignore malformed URL parsing.
-    }
-}
+function switchSection(sectionId, options = {}) {
+    const skipAuthPrompt = options.skipAuthPrompt === true;
+    const updateUrl = options.updateUrl !== false;
+    const replaceHistory = options.replaceHistory === true;
 
-function switchSection(sectionId) {
     if ((sectionId === 'create' || sectionId === 'decklists') && !currentUser) {
-        alert('You must create an account and log in to access this section.');
-        goToAuth('login');
+        if (!skipAuthPrompt) {
+            alert('You must create an account and log in to access this section.');
+        }
+        goToAuth('login', { replaceHistory: true });
         return;
     }
 
     if (sectionId === 'dashboard' && !currentUser) {
-        showLanding();
+        if (skipAuthPrompt) {
+            goToAuth('login', { replaceHistory: true });
+        } else {
+            showLanding();
+        }
         return;
     }
 
     activateSection(sectionId, true);
+    if (updateUrl) {
+        syncUrlToSection(sectionId, { replaceHistory });
+    }
 }
 
-async function renderLandingTournaments() {
+async function renderLandingTournaments(options = {}) {
     const container = document.getElementById('landing-tournament-list');
     if (!container) return;
 
     container.innerHTML = '<div class="empty-state">Loading tournaments...</div>';
 
     try {
-        const response = await fetch(`${API_URL}/tournaments`);
+        const response = await fetch(`${API_URL}/tournaments`, {
+            suppressLoading: options.suppressLoading === true
+        });
         const tournaments = await response.json();
 
         if (!response.ok) {
@@ -1377,6 +1945,8 @@ function createLandingDecklistItem(decklist) {
         ? createUserLink(decklist.owner, decklist.owner.username || 'Unknown')
         : 'Unknown';
 
+    const archetypeTag = decklist.archetype ? `<span style="display: inline-block; background: var(--primary-color); color: white; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.8rem;">${escapeHtml(decklist.archetype)}</span>` : '';
+
     return `
         <div class="tournament-item">
             <div class="tournament-main">
@@ -1389,6 +1959,7 @@ function createLandingDecklistItem(decklist) {
                     <span>Created by ${ownerLabel}</span>
                     <span>${new Date(decklist.createdAt).toLocaleDateString()}</span>
                 </div>
+                ${archetypeTag ? `<div style="margin-top: 0.5rem;">${archetypeTag}</div>` : ''}
             </div>
             <div class="tournament-actions">
                 <button class="btn secondary" onclick="viewDecklist('${decklist._id}')">View Decklist</button>
@@ -1397,14 +1968,16 @@ function createLandingDecklistItem(decklist) {
     `;
 }
 
-async function renderLandingDecklists() {
+async function renderLandingDecklists(options = {}) {
     const container = document.getElementById('landing-decklist-list');
     if (!container) return;
 
     container.innerHTML = '<div class="empty-state">Loading decklists...</div>';
 
     try {
-        const response = await fetch(`${API_URL}/decklists/recent`);
+        const response = await fetch(`${API_URL}/decklists/recent`, {
+            suppressLoading: options.suppressLoading === true
+        });
         const decklists = await response.json();
 
         if (!response.ok) {
@@ -1441,7 +2014,7 @@ async function renderLandingDecklists() {
     }
 }
 
-async function renderTournaments() {
+async function renderTournaments(options = {}) {
     const activeContainer = document.getElementById('tournament-list');
     const completedContainer = document.getElementById('completed-tournament-list');
 
@@ -1449,7 +2022,9 @@ async function renderTournaments() {
     completedContainer.innerHTML = '<div class="empty-state">Loading completed tournaments...</div>';
 
     try {
-        const response = await fetch(`${API_URL}/tournaments`);
+        const response = await fetch(`${API_URL}/tournaments`, {
+            suppressLoading: options.suppressLoading === true
+        });
         const tournaments = await response.json();
 
         if (!response.ok || !Array.isArray(tournaments)) {
@@ -1596,12 +2171,13 @@ async function joinTournament(id, tournamentGame = null) {
     }
 }
 
-async function loadMyDecklists() {
+async function loadMyDecklists(options = {}) {
     if (!requireAuth('manage decklists')) return [];
 
     const token = localStorage.getItem('token');
     const response = await fetch(`${API_URL}/decklists`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Authorization': `Bearer ${token}` },
+        suppressLoading: options.suppressLoading === true
     });
 
     const data = await response.json();
@@ -1629,6 +2205,9 @@ function resetDecklistForm() {
     const publicToggle = document.getElementById('decklist-public');
     if (publicToggle) publicToggle.checked = true;
 
+    const archetypeField = document.getElementById('decklist-archetype');
+    if (archetypeField) archetypeField.value = '';
+
     setDeckCardFeedback('');
     hideCardSuggestions();
     renderDeckBuilder();
@@ -1642,6 +2221,8 @@ async function editDecklist(decklistId) {
 
     document.getElementById('decklist-name').value = decklist.name || '';
     document.getElementById('decklist-game').value = decklist.game || '';
+    const archetypeField = document.getElementById('decklist-archetype');
+    if (archetypeField) archetypeField.value = decklist.archetype || '';
     document.getElementById('decklist-notes').value = decklist.notes || '';
     const publicToggle = document.getElementById('decklist-public');
     if (publicToggle) publicToggle.checked = decklist.isPublic !== false;
@@ -1695,10 +2276,12 @@ function renderDecklistCard(decklist) {
         'duel-links': 'Duel Links'
     }[decklist.game] || decklist.game;
 
+    const archetypeTag = decklist.archetype ? `<span style="display: inline-block; background: var(--primary-color); color: white; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.75rem; margin-left: 0.5rem;">${escapeHtml(decklist.archetype)}</span>` : '';
+
     return `
         <div style="border: 1px solid var(--border-color); border-radius: 8px; padding: 0.8rem; background: var(--light-bg);">
             <div style="display: flex; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
-                <strong>${escapeHtml(decklist.name)}</strong>
+                <div><strong>${escapeHtml(decklist.name)}</strong>${archetypeTag}</div>
                 <span style="font-size: 0.8rem; color: var(--text-secondary);">${escapeHtml(gameLabel)} • ${decklist.isPublic === false ? 'Private' : 'Public'}</span>
             </div>
             <div style="font-size: 0.82rem; color: var(--text-secondary); margin-top: 0.3rem;">
@@ -1723,27 +2306,30 @@ function renderDecklistCard(decklist) {
     `;
 }
 
-async function viewDecklist(decklistId) {
+async function viewDecklist(decklistId, options = {}) {
     if (!decklistId) return;
 
-    activateSection('decklist-detail', true);
-    try {
-        const nextUrl = new URL(window.location.href);
-        nextUrl.searchParams.set('deck', decklistId);
-        window.history.replaceState({}, '', nextUrl.toString());
-    } catch (error) {
-        // Ignore URL update failures.
+    if (!options.refresh) {
+        activateSection('decklist-detail', true);
+        if (options.updateUrl !== false) {
+            updateBrowserUrl(`/decklists/${encodeURIComponent(decklistId)}`);
+        }
     }
 
     const container = document.getElementById('decklist-detail-content');
     if (!container) return;
 
-    container.innerHTML = '<div class="empty-state">Loading decklist...</div>';
+    if (!options.refresh) {
+        container.innerHTML = '<div class="empty-state">Loading decklist...</div>';
+    }
 
     try {
         const token = localStorage.getItem('token');
         const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-        const response = await fetch(`${API_URL}/decklists/${decklistId}`, { headers });
+        const response = await fetch(`${API_URL}/decklists/${decklistId}`, {
+            headers,
+            suppressLoading: options.suppressLoading === true
+        });
         const data = await response.json();
 
         if (!response.ok) {
@@ -1759,14 +2345,22 @@ async function viewDecklist(decklistId) {
     }
 }
 
-async function renderDecklists() {
+async function renderDecklists(options = {}) {
     const container = document.getElementById('decklist-list');
     if (!container) return;
+
+    const shouldForceOverlay = options.suppressLoading !== true;
+    if (shouldForceOverlay) {
+        beginGlobalLoading({
+            immediate: true,
+            message: 'Loading decklists...'
+        });
+    }
 
     container.innerHTML = '<div class="empty-state">Loading decklists...</div>';
 
     try {
-        await loadMyDecklists();
+        await loadMyDecklists(options);
 
         const visibilityFilter = document.getElementById('decklist-visibility-filter')?.value || 'all';
         const filteredDecklists = myDecklists.filter((decklist) => {
@@ -1788,6 +2382,10 @@ async function renderDecklists() {
         container.innerHTML = filteredDecklists.map(renderDecklistCard).join('');
     } catch (error) {
         container.innerHTML = `<div class="empty-state">${escapeHtml(error.message || 'Error loading decklists')}</div>`;
+    } finally {
+        if (shouldForceOverlay) {
+            endGlobalLoading();
+        }
     }
 }
 
@@ -1912,6 +2510,59 @@ async function completeTournament(id) {
         }
     } catch (error) {
         alert('Network error');
+    }
+}
+
+async function checkInToTournament(id) {
+    if (!requireAuth('check in to tournaments')) return;
+
+    try {
+        beginGlobalLoading({ immediate: true, message: 'Checking in...' });
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_URL}/tournaments/${id}/checkin`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            refreshTournamentDetailIfOpen(id);
+            addNotification('You have checked in! ✓', 'success');
+        } else {
+            alert(data.error || 'Failed to check in');
+        }
+    } catch (error) {
+        alert('Network error');
+    } finally {
+        endGlobalLoading();
+    }
+}
+
+async function startTopCut(id) {
+    if (!requireAuth('manage tournaments')) return;
+    if (!confirm('Start top cut bracket from Swiss standings?')) return;
+
+    try {
+        beginGlobalLoading({ immediate: true, message: 'Starting top cut...' });
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_URL}/tournaments/${id}/start-top-cut`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            refreshTournamentDetailIfOpen(id);
+            addNotification('Top cut bracket created!', 'success');
+        } else {
+            alert(data.error || 'Failed to start top cut');
+        }
+    } catch (error) {
+        alert('Network error');
+    } finally {
+        endGlobalLoading();
     }
 }
 
@@ -2316,11 +2967,16 @@ function renderRoundsSection(tournament, isCreator, currentUserId) {
             .map((match) => renderBracketMatchCard(tournament, round, match, isCreator, currentUserId))
             .join('');
 
+        const timerHTML = round.timerStartedAt && (tournament.roundTimerMinutes || 0) > 0
+            ? `<div style="font-size: 0.9rem; margin-left: auto;">${formatRoundTimeRemaining(round.timerStartedAt, tournament.roundTimerMinutes)}</div>`
+            : '';
+
         return `
             <div style="margin-bottom: 1rem; padding: 1rem; border: 1px solid var(--border-color); border-radius: 8px; background-color: var(--light-bg);">
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap;">
                     <h4 style="margin: 0; color: var(--text-primary);">Round ${round.number}</h4>
                     <span class="status-badge ${getRoundStatusBadgeClass(round)}">${getRoundStatusLabel(round)}</span>
+                    ${timerHTML}
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 0.75rem;">
                     ${matchesHtml}
@@ -2703,11 +3359,25 @@ function renderProfileRecentMatches(matches) {
     }).join('');
 }
 
-async function saveMyProfile() {
+async function saveMyProfile(buttonEl = null) {
     if (!requireAuth('update your profile')) return;
+
+    const saveBtn = buttonEl || document.querySelector('#user-profile-content button.btn[onclick^="saveMyProfile"]');
+    const originalSaveText = saveBtn ? saveBtn.textContent : 'Save Profile';
+
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+    }
+
+    beginGlobalLoading({
+        immediate: true,
+        message: 'Saving profile...'
+    });
 
     const token = localStorage.getItem('token');
     const payload = {
+        avatarUrl: document.getElementById('profile-avatar-url')?.value || '',
         bio: document.getElementById('profile-bio')?.value || '',
         location: document.getElementById('profile-location')?.value || '',
         favoriteGame: document.getElementById('profile-favorite-game')?.value || '',
@@ -2731,10 +3401,18 @@ async function saveMyProfile() {
             return;
         }
 
+        setLoadingScreenMessage('Refreshing profile...');
         await viewUserProfile(getEntityId(data));
         alert('Profile updated.');
     } catch (error) {
         alert('Network error while updating profile');
+    } finally {
+        endGlobalLoading();
+
+        if (saveBtn && saveBtn.isConnected) {
+            saveBtn.disabled = false;
+            saveBtn.textContent = originalSaveText;
+        }
     }
 }
 
@@ -2748,6 +3426,9 @@ async function viewUserProfile(userId, options = {}) {
 
     if (!options.refresh) {
         switchSection('user-profile');
+        if (options.updateUrl !== false) {
+            updateBrowserUrl(`/users/${encodeURIComponent(userId)}`);
+        }
     }
     const container = document.getElementById('user-profile-content');
     if (!options.refresh) {
@@ -2755,13 +3436,53 @@ async function viewUserProfile(userId, options = {}) {
     }
 
     try {
-        const response = await fetch(`${API_URL}/users/${userId}`);
-        const profile = await response.json();
+        const response = await fetch(`${API_URL}/users/${userId}`, {
+            suppressLoading: options.suppressLoading === true
+        });
+
+        const rawResponse = await response.text();
+        let payload = null;
+        try {
+            payload = rawResponse ? JSON.parse(rawResponse) : {};
+        } catch (parseError) {
+            payload = { error: 'Invalid profile response from server.' };
+        }
 
         if (!response.ok) {
-            container.innerHTML = `<div class="empty-state">${profile.error || 'Unable to load profile.'}</div>`;
+            container.innerHTML = `<div class="empty-state">${payload?.error || 'Unable to load profile.'}</div>`;
             return;
         }
+
+        const profile = {
+            _id: payload?._id || userId,
+            username: payload?.username || 'Unknown User',
+            email: payload?.email || 'Unknown email',
+            avatarUrl: payload?.avatarUrl || '',
+            bio: payload?.bio || '',
+            location: payload?.location || '',
+            favoriteGame: payload?.favoriteGame || '',
+            favoriteDeck: payload?.favoriteDeck || '',
+            website: payload?.website || '',
+            createdAt: payload?.createdAt || new Date().toISOString(),
+            stats: {
+                createdCount: payload?.stats?.createdCount || 0,
+                joinedCount: payload?.stats?.joinedCount || 0,
+                wins: payload?.stats?.wins || 0,
+                losses: payload?.stats?.losses || 0,
+                draws: payload?.stats?.draws || 0,
+                winRate: payload?.stats?.winRate || 0,
+                championships: payload?.stats?.championships || 0
+            },
+            recentCreatedTournaments: Array.isArray(payload?.recentCreatedTournaments)
+                ? payload.recentCreatedTournaments
+                : [],
+            recentJoinedTournaments: Array.isArray(payload?.recentJoinedTournaments)
+                ? payload.recentJoinedTournaments
+                : [],
+            recentMatches: Array.isArray(payload?.recentMatches)
+                ? payload.recentMatches
+                : []
+        };
 
         const profileId = getEntityId(profile);
         const isOwnProfile = !!currentUser && isSameId(getCurrentUserId(), profileId);
@@ -2780,7 +3501,14 @@ async function viewUserProfile(userId, options = {}) {
         container.innerHTML = `
             <div style="max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; gap: 1rem;">
                 <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 1.2rem;">
-                    <h1 style="margin-bottom: 0.5rem;">${escapeHtml(profile.username)}</h1>
+                    <div style="display: flex; gap: 1rem; align-items: flex-start; margin-bottom: 1rem;">
+                        <div>${getAvatarHTML(profile, '80px')}</div>
+                        <div style="flex: 1;">
+                            <h1 style="margin: 0 0 0.3rem 0;">${escapeHtml(profile.username)}</h1>
+                            <p style="margin: 0; color: var(--text-secondary);">${escapeHtml(profile.email)}</p>
+                        </div>
+                    </div>
+                    <hr style="margin: 1rem 0; border: none; border-top: 1px solid var(--border-color);">
                     <p style="margin-bottom: 0.35rem;"><strong>Email:</strong> ${escapeHtml(profile.email)}</p>
                     <p style="margin-bottom: 0.35rem;"><strong>Location:</strong> ${escapeHtml(profile.location || 'Not provided')}</p>
                     <p style="margin-bottom: 0.35rem;"><strong>Favorite Game:</strong> ${escapeHtml(profile.favoriteGame || 'Not provided')}</p>
@@ -2820,6 +3548,10 @@ async function viewUserProfile(userId, options = {}) {
                     <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 1.1rem;">
                         <h3 style="margin-bottom: 0.9rem;">Edit Your Profile</h3>
                         <div class="form-group">
+                            <label for="profile-avatar-url">Avatar URL (leave empty for initials)</label>
+                            <input id="profile-avatar-url" type="text" value="${escapeHtml(profile.avatarUrl || '')}" placeholder="https://example.com/avatar.jpg">
+                        </div>
+                        <div class="form-group">
                             <label for="profile-bio">Bio</label>
                             <textarea id="profile-bio" rows="4">${escapeHtml(profile.bio || '')}</textarea>
                         </div>
@@ -2839,7 +3571,7 @@ async function viewUserProfile(userId, options = {}) {
                             <label for="profile-website">Website</label>
                             <input id="profile-website" type="text" value="${escapeHtml(profile.website || '')}">
                         </div>
-                        <button class="btn" onclick="saveMyProfile()">Save Profile</button>
+                        <button class="btn" onclick="saveMyProfile(this)">Save Profile</button>
                     </div>
                 ` : ''}
 
@@ -2860,13 +3592,17 @@ async function viewUserProfile(userId, options = {}) {
             </div>
         `;
     } catch (error) {
+        console.error('Failed to render profile view:', error);
         container.innerHTML = '<div class="empty-state">Error loading user profile.</div>';
     }
 }
 
 async function viewTournament(id, options = {}) {
     if (!options.refresh) {
-        switchSection('tournament-detail');
+        switchSection('tournament-detail', { updateUrl: options.updateUrl !== false ? true : false });
+        if (options.updateUrl !== false) {
+            updateBrowserUrl(`/tournaments/${encodeURIComponent(id)}`);
+        }
     }
 
     currentTournamentDetailId = id;
@@ -2876,7 +3612,9 @@ async function viewTournament(id, options = {}) {
     }
 
     try {
-        const response = await fetch(`${API_URL}/tournaments/${id}`);
+        const response = await fetch(`${API_URL}/tournaments/${id}`, {
+            suppressLoading: options.suppressLoading === true
+        });
         const tournament = await response.json();
 
         if (!response.ok) {
@@ -2923,12 +3661,25 @@ async function viewTournament(id, options = {}) {
                 actionButtons += ` <button class="btn danger" onclick="deleteTournament('${tournament._id}', true)">Delete Tournament</button>`;
             }
         } else if (tournament.status === 'active') {
-            if (isCreator) {
-                if (tournament.roundMeta?.canCompleteNow) {
-                    actionButtons = `<button class="btn" onclick="completeTournament('${tournament._id}')">Complete Tournament</button>`;
+            if (hasJoined && !isCreator) {
+                const isCheckedIn = (tournament.checkedInPlayerIds || []).includes(currentUserId);
+                if (!isCheckedIn) {
+                    actionButtons = `<button class="btn" onclick="checkInToTournament('${tournament._id}')">✓ Check In</button>`;
                 } else {
-                    actionButtons = '<button class="btn" disabled>Winner Not Declared Yet</button>';
+                    actionButtons = `<button class="btn secondary" disabled>✓ Checked In</button>`;
                 }
+            }
+            if (isCreator) {
+                const actions = [];
+                if (tournament.roundMeta?.canStartTopCut) {
+                    actions.push(`<button class="btn" onclick="startTopCut('${tournament._id}')" style="background-color: var(--success);">Start Top Cut</button>`);
+                }
+                if (tournament.roundMeta?.canCompleteNow) {
+                    actions.push(`<button class="btn" onclick="completeTournament('${tournament._id}')">Complete Tournament</button>`);
+                } else if (!tournament.roundMeta?.canStartTopCut) {
+                    actions.push(`<button class="btn" disabled>Winner Not Declared Yet</button>`);
+                }
+                actionButtons = actions.join(' ');
             }
         }
 
@@ -2940,10 +3691,14 @@ async function viewTournament(id, options = {}) {
         );
 
         const playersList = tournament.players && tournament.players.length > 0
-            ? tournament.players.map((player, index) => `
+            ? tournament.players.map((player, index) => {
+                const playerId = getEntityId(player);
+                const isCheckedIn = (tournament.checkedInPlayerIds || []).includes(playerId);
+                const checkInBadge = isCheckedIn ? `<span style="display: inline-block; background: var(--success); color: white; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.75rem; margin-left: 0.5rem;">✓ Checked In</span>` : '';
+                return `
                 <div style="padding: 1rem; background-color: var(--card-bg); border: 1px solid var(--border-color); border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <strong>${index + 1}. ${createUserLink(player, player.username || 'Unknown')}</strong>
+                        <strong>${index + 1}. ${createUserLink(player, player.username || 'Unknown')}${checkInBadge}</strong>
                         <div style="font-size: 0.85rem; color: var(--text-secondary);">${player.email}</div>
                         ${(() => {
                             const registration = registrationsByUserId.get(getEntityId(player));
@@ -2961,7 +3716,8 @@ async function viewTournament(id, options = {}) {
                     </div>
                     ${isCreator && tournament.status === 'registration' ? `<button class="btn danger" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;" onclick="alert('Kick player feature coming soon')">Remove</button>` : ''}
                 </div>
-            `).join('')
+            `;
+            }).join('')
             : '<div class="empty-state">No players yet</div>';
 
         container.innerHTML = `
@@ -3029,17 +3785,42 @@ async function viewTournament(id, options = {}) {
     }
 }
 
+// Show/hide top-cut selector based on format choice
+document.getElementById('tournament-format')?.addEventListener('change', (e) => {
+    const group = document.getElementById('tournament-topcut-group');
+    if (group) {
+        group.style.display = e.target.value === 'swiss' ? '' : 'none';
+    }
+});
+
 document.getElementById('tournament-form').addEventListener('submit', async (e) => {
     e.preventDefault();
 
     if (!requireAuth('create tournaments')) return;
+
+    const createBtn = (e.submitter && e.submitter.type === 'submit')
+        ? e.submitter
+        : document.querySelector('#tournament-form button[type="submit"]');
+    const originalCreateText = createBtn ? createBtn.textContent : 'Create Tournament';
+
+    if (createBtn) {
+        createBtn.disabled = true;
+        createBtn.textContent = 'Creating...';
+    }
+
+    beginGlobalLoading({
+        immediate: true,
+        message: 'Creating tournament...'
+    });
 
     const formData = {
         name: document.getElementById('tournament-name').value.trim(),
         game: document.getElementById('tournament-game').value,
         format: document.getElementById('tournament-format').value,
         maxPlayers: parseInt(document.getElementById('tournament-players').value),
-        description: document.getElementById('tournament-desc').value.trim()
+        description: document.getElementById('tournament-desc').value.trim(),
+        roundTimerMinutes: parseInt(document.getElementById('tournament-timer')?.value || '0') || 0,
+        topCutSize: parseInt(document.getElementById('tournament-topcut')?.value || '0') || 0
     };
 
     try {
@@ -3056,13 +3837,21 @@ document.getElementById('tournament-form').addEventListener('submit', async (e) 
         if (response.ok) {
             document.getElementById('tournament-form').reset();
             switchSection('dashboard');
-            renderTournaments();
+            setLoadingScreenMessage('Refreshing tournaments...');
+            await renderTournaments();
         } else {
             const error = await response.json();
             alert(error.error || 'Failed to create tournament');
         }
     } catch (error) {
         alert('Network error - backend running?');
+    } finally {
+        endGlobalLoading();
+
+        if (createBtn && createBtn.isConnected) {
+            createBtn.disabled = false;
+            createBtn.textContent = originalCreateText;
+        }
     }
 });
 
@@ -3085,21 +3874,38 @@ if (decklistForm) {
             extraDeck: serializeDeckSection(deckBuilder.extra),
             sideDeck: serializeDeckSection(deckBuilder.side),
             isPublic: !!document.getElementById('decklist-public')?.checked,
+            archetype: document.getElementById('decklist-archetype')?.value.trim() || '',
             notes: document.getElementById('decklist-notes').value.trim()
         };
 
-        setDeckCardFeedback('Validating deck legality...', 'success');
-        const legality = await validateDecklistLegality(payload);
-        if (!legality.valid) {
-            alert(`Deck legality check failed:\n\n${legality.errors.join('\n')}`);
-            setDeckCardFeedback('Deck legality check failed. Please fix listed issues.');
-            return;
-        }
-        if (legality.warnings.length > 0) {
-            addNotification(`Deck saved with ${legality.warnings.length} legality warning(s).`, 'warning');
+        const decklistSubmitBtn = document.getElementById('decklist-submit-btn');
+        if (decklistSubmitBtn) {
+            decklistSubmitBtn.disabled = true;
+            decklistSubmitBtn.textContent = 'Validating...';
         }
 
+        beginGlobalLoading({
+            immediate: true,
+            message: 'Validating decklist...'
+        });
+
         try {
+            setDeckCardFeedback('Validating deck legality...', 'success');
+            const legality = await validateDecklistLegality(payload);
+            if (!legality.valid) {
+                alert(`Deck legality check failed:\n\n${legality.errors.join('\n')}`);
+                setDeckCardFeedback('Deck legality check failed. Please fix listed issues.');
+                return;
+            }
+            if (legality.warnings.length > 0) {
+                addNotification(`Deck saved with ${legality.warnings.length} legality warning(s).`, 'warning');
+            }
+
+            if (decklistSubmitBtn) {
+                decklistSubmitBtn.textContent = 'Saving...';
+            }
+            setLoadingScreenMessage('Saving decklist...');
+
             const token = localStorage.getItem('token');
             const isEditing = !!editingDecklistId;
             const endpoint = isEditing
@@ -3128,6 +3934,13 @@ if (decklistForm) {
             addNotification('Decklist saved successfully.', 'success');
         } catch (error) {
             alert('Network error while saving decklist');
+        } finally {
+            endGlobalLoading();
+
+            if (decklistSubmitBtn) {
+                decklistSubmitBtn.disabled = false;
+                decklistSubmitBtn.textContent = editingDecklistId ? 'Update Decklist' : 'Save Decklist';
+            }
         }
     });
 }
@@ -3161,11 +3974,24 @@ if (decklistYdkFileInput) {
         const file = event.target.files?.[0];
         if (!file) return;
 
+        const importYdkBtn = document.querySelector('button[onclick="triggerYdkImport()"]');
+        const originalImportYdkText = importYdkBtn ? importYdkBtn.textContent : 'Import .ydk';
+        if (importYdkBtn) {
+            importYdkBtn.disabled = true;
+            importYdkBtn.textContent = 'Importing...';
+        }
+
+        beginGlobalLoading({
+            immediate: true,
+            message: 'Importing .ydk deck...'
+        });
+
         try {
             const content = await file.text();
             const parsed = parseYdkContentToSections(content);
 
             setDeckCardFeedback('Importing .ydk file...', 'success');
+            setLoadingScreenMessage('Resolving card data...');
             deckBuilder = {
                 main: await hydrateDeckSectionFromText(parsed.main.join('\n')),
                 extra: await hydrateDeckSectionFromText(parsed.extra.join('\n')),
@@ -3178,6 +4004,13 @@ if (decklistYdkFileInput) {
             setDeckCardFeedback('Failed to import .ydk file.');
             addNotification('Failed to import .ydk file.', 'warning');
         } finally {
+            endGlobalLoading();
+
+            if (importYdkBtn) {
+                importYdkBtn.disabled = false;
+                importYdkBtn.textContent = originalImportYdkText;
+            }
+
             event.target.value = '';
         }
     });
@@ -3192,14 +4025,20 @@ document.querySelectorAll('.format-btn').forEach(btn => {
     });
 });
 
-function showSignup() {
+function showSignup(options = {}) {
     document.getElementById('login-form').style.display = 'none';
     document.getElementById('signup-form').style.display = 'block';
+    if (options.updateUrl !== false) {
+        updateBrowserUrl('/auth/signup');
+    }
 }
 
-function showLogin() {
+function showLogin(options = {}) {
     document.getElementById('login-form').style.display = 'block';
     document.getElementById('signup-form').style.display = 'none';
+    if (options.updateUrl !== false) {
+        updateBrowserUrl('/auth/login');
+    }
 }
 
 ['login-email', 'login-password'].forEach((id) => {
@@ -3304,28 +4143,37 @@ function startLivePolling() {
         }
 
         if (document.getElementById('dashboard').classList.contains('active') && currentUser) {
-            await renderTournaments();
+            await renderTournaments({ suppressLoading: true });
         }
 
         if (document.getElementById('tournament-detail').classList.contains('active') && currentTournamentDetailId) {
-            await viewTournament(currentTournamentDetailId, { refresh: true });
+            await viewTournament(currentTournamentDetailId, {
+                refresh: true,
+                suppressLoading: true
+            });
         }
 
         if (document.getElementById('decklists').classList.contains('active') && currentUser) {
-            await renderDecklists();
+            await renderDecklists({ suppressLoading: true });
         }
 
         if (document.getElementById('landing').classList.contains('active') && !currentUser) {
-            await renderLandingTournaments();
-            await renderLandingDecklists();
+            await renderLandingTournaments({ suppressLoading: true });
+            await renderLandingDecklists({ suppressLoading: true });
         }
     }, 10000);
 }
 
 if (document.getElementById('decklist-form')) {
+    ensureDecklistArchetypeField();
     resetDecklistForm();
 }
 
 initializeRealtimeSocket();
 startLivePolling();
+
+window.addEventListener('popstate', async () => {
+    await renderRouteFromLocation({ replaceHistory: true });
+});
+
 init();
