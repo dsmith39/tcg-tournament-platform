@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 
 const { registerApi, ensureMongoConnection } = require('../server/api-server');
+const { resetRateLimiters } = require('../server/security');
 
 let mongod;
 let app;
@@ -52,8 +53,13 @@ test.after(async () => {
 });
 
 test.beforeEach(async () => {
+  // Clear MongoDB documents so each test starts with a clean data slate.
   const collections = await mongoose.connection.db.collections();
   await Promise.all(collections.map((collection) => collection.deleteMany({})));
+
+  // Reset in-memory rate limit counters so IP-keyed auth buckets from earlier tests
+  // don't carry over and cause unexpected 429 responses in unrelated tests.
+  resetRateLimiters();
 });
 
 test('auth flow: register and fetch current user', async () => {
