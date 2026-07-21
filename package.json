@@ -2,6 +2,9 @@
   "name": "tcg-tournament-platform",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js",
@@ -10,7 +13,11 @@
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:install": "playwright install chromium",
     "test:e2e:local": "node ./scripts/run-e2e-local.js",
-    "test:e2e:cleanup": "node ./scripts/run-e2e-local.js --cleanup-only"
+    "test:e2e:cleanup": "node ./scripts/run-e2e-local.js --cleanup-only",
+    "cards:init-db": "node card-database/src/init_db.js",
+    "cards:import": "node card-database/src/import_cards.js",
+    "cards:search": "node card-database/src/search_cards.js",
+    "cards:download-images": "node card-database/src/download_card_images.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -19,13 +26,11 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.1",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.2.4",
     "socket.io": "^4.8.3",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
-    "mongodb-memory-server": "^10.1.4",
     "nodemon": "^3.1.14",
     "supertest": "^7.1.4"
   }

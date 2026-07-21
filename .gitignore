@@ -13,3 +13,8 @@ playwright-report/
 test-results/
 .DS_Store
 Thumbs.db
+
+# SQLite data files -- generated locally, not checked in.
+server/data/
+card-database/data/
+card-database/card-images/

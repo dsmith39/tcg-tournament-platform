@@ -1377,6 +1377,46 @@ function renderDeckBuilder() {
     renderDeckBuilderSection('main');
     renderDeckBuilderSection('extra');
     renderDeckBuilderSection('side');
+    renderDeckStats();
+}
+
+// Monster/Spell/Trap/Total breakdown for the Main Deck. Card type isn't
+// stored on deckBuilder entries (just name/imageUrl), so this resolves each
+// unique name through the same fetchDetailedCardByName cache the banlist
+// validator already warms -- cheap after the first lookup per card.
+async function renderDeckStats() {
+    const statsBox = document.getElementById('deck-stats');
+    if (!statsBox) return;
+
+    const mainCards = deckBuilder.main || [];
+    if (mainCards.length === 0) {
+        statsBox.innerHTML = '';
+        return;
+    }
+
+    const renderToken = (renderDeckStats.token = (renderDeckStats.token || 0) + 1);
+    const counts = { monster: 0, spell: 0, trap: 0 };
+
+    await Promise.all(mainCards.map(async (card) => {
+        try {
+            const detailed = await fetchDetailedCardByName(card.name);
+            const type = detailed?.type || '';
+            if (type.includes('Monster')) counts.monster += 1;
+            else if (type.includes('Spell')) counts.spell += 1;
+            else if (type.includes('Trap')) counts.trap += 1;
+        } catch (error) {
+            // Unresolvable card name -- skip it, don't block the rest of the count.
+        }
+    }));
+
+    if (renderToken !== renderDeckStats.token) return; // a newer render started; drop this one
+
+    statsBox.innerHTML = `
+        <span>Monsters: <strong>${counts.monster}</strong></span>
+        <span>Spells: <strong>${counts.spell}</strong></span>
+        <span>Traps: <strong>${counts.trap}</strong></span>
+        <span>Total: <strong>${mainCards.length}</strong></span>
+    `;
 }
 
 function removeCardFromDeckBuilder(section, index) {
@@ -1519,7 +1559,10 @@ function getPathForSection(sectionId) {
         decklists: '/decklists',
         'tournament-detail': '/dashboard',
         'decklist-detail': '/decklists',
-        'user-profile': currentUser ? '/dashboard' : '/'
+        'user-profile': currentUser ? '/dashboard' : '/',
+        'card-lookup': '/tools/card-lookup',
+        'meta-tracker': '/tools/meta-tracker',
+        'lp-calc': '/tools/lp-calculator'
     };
 
     return map[sectionId] || '/';
@@ -1538,6 +1581,9 @@ function getRouteFromLocation() {
     if (pathname === '/dashboard') return { type: 'dashboard' };
     if (pathname === '/tournaments/create') return { type: 'create' };
     if (pathname === '/decklists') return { type: 'decklists' };
+    if (pathname === '/tools/card-lookup') return { type: 'card-lookup' };
+    if (pathname === '/tools/meta-tracker') return { type: 'meta-tracker' };
+    if (pathname === '/tools/lp-calculator') return { type: 'lp-calc' };
 
     const tournamentMatch = pathname.match(/^\/tournaments\/([^/]+)$/);
     if (tournamentMatch) return { type: 'tournament-detail', id: decodeURIComponent(tournamentMatch[1]) };
@@ -1589,6 +1635,11 @@ async function renderRouteFromLocation(options = {}) {
             return;
         }
         switchSection('decklists', { updateUrl: false, skipAuthPrompt: true });
+        return;
+    }
+
+    if (route.type === 'card-lookup' || route.type === 'meta-tracker' || route.type === 'lp-calc') {
+        switchSection(route.type, { updateUrl: false, skipAuthPrompt: true });
         return;
     }
 
@@ -1644,6 +1695,15 @@ function activateSection(sectionId, trackHistory = true) {
 
     if (sectionId === 'decklists' && currentUser) {
         renderDecklists();
+    }
+
+    if (sectionId === 'meta-tracker') {
+        renderMetaTracker();
+    }
+
+    if (sectionId === 'lp-calc') {
+        renderLpDisplay();
+        renderLpScores();
     }
 }
 
@@ -4178,6 +4238,295 @@ function startLivePolling() {
             await renderLandingDecklists({ suppressLoading: true });
         }
     }, 10000);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// CARD LOOKUP — no login required, hits the local card database via the
+// same /api/v7/cardinfo.php path the decklist builder's autocomplete uses.
+// ══════════════════════════════════════════════════════════════════════════
+async function searchCardLookup() {
+    const input = document.getElementById('card-lookup-input');
+    const query = (input?.value || '').trim();
+    const grid = document.getElementById('card-lookup-results');
+    if (!grid) return;
+
+    document.getElementById('card-lookup-detail')?.classList.add('hidden');
+
+    if (!query) return;
+
+    grid.innerHTML = '<div class="empty-state">Searching...</div>';
+
+    try {
+        const response = await fetch(`${YGO_CARD_API_URL}?fname=${encodeURIComponent(query)}&num=24&offset=0`);
+        const data = await response.json();
+
+        if (!response.ok || !Array.isArray(data?.data) || data.data.length === 0) {
+            grid.innerHTML = `<div class="empty-state">${escapeHtml(data?.error || 'No cards found.')}</div>`;
+            return;
+        }
+
+        renderCardLookupGrid(grid, data.data);
+    } catch (error) {
+        grid.innerHTML = '<div class="empty-state">Error fetching cards.</div>';
+    }
+}
+
+function renderCardLookupGrid(container, cards) {
+    container.innerHTML = '';
+    cards.forEach((card) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'card-thumb';
+
+        const img = document.createElement('img');
+        img.src = normalizeCardImageUrl(card.card_images?.[0]?.image_url_small || card.card_images?.[0]?.image_url || '');
+        img.alt = card.name;
+        img.loading = 'lazy';
+        img.title = card.name;
+
+        const label = document.createElement('div');
+        label.className = 'card-name-label';
+        label.textContent = card.name;
+
+        wrap.append(img, label);
+        wrap.addEventListener('click', () => showCardLookupDetail(card));
+        container.appendChild(wrap);
+    });
+}
+
+function showCardLookupDetail(card) {
+    const box = document.getElementById('card-lookup-detail');
+    if (!box) return;
+    box.classList.remove('hidden');
+
+    const type = card.type || '';
+    const stats = type.includes('Monster')
+        ? `<div class="card-stats"><span>ATK <strong>${card.atk ?? '?'}</strong></span><span>DEF <strong>${card.def ?? '?'}</strong></span>${card.level ? `<span>Level <strong>${card.level}</strong></span>` : ''}${card.linkval ? `<span>Link <strong>${card.linkval}</strong></span>` : ''}</div>`
+        : '';
+
+    const imageUrl = normalizeCardImageUrl(card.card_images?.[0]?.image_url || card.card_images?.[0]?.image_url_small || '');
+
+    box.innerHTML = `
+        <img src="${imageUrl}" alt="${escapeHtml(card.name)}">
+        <div class="card-lookup-info">
+            <h2>${escapeHtml(card.name)}</h2>
+            <div class="card-type">${escapeHtml(type)}${card.race ? ' / ' + escapeHtml(card.race) : ''}${card.attribute ? ' / ' + escapeHtml(card.attribute) : ''}</div>
+            ${stats}
+            <div class="card-desc">${escapeHtml(card.desc || '').replace(/\n/g, '<br/>')}</div>
+        </div>
+    `;
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+document.getElementById('card-lookup-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') searchCardLookup();
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// META TRACKER — no login required, purely client-side (localStorage), same
+// as the standalone tool it was ported from. Duel history never leaves the
+// browser and isn't tied to a platform account.
+// ══════════════════════════════════════════════════════════════════════════
+const META_TRACKER_STORAGE_KEY = 'tcg-meta-tracker';
+
+function loadMetaTrackerHistory() {
+    try {
+        return JSON.parse(localStorage.getItem(META_TRACKER_STORAGE_KEY) || '[]');
+    } catch (error) {
+        return [];
+    }
+}
+
+let metaTrackerHistory = loadMetaTrackerHistory();
+
+function saveMetaTrackerHistory() {
+    localStorage.setItem(META_TRACKER_STORAGE_KEY, JSON.stringify(metaTrackerHistory));
+}
+
+function renderMetaTracker() {
+    const tbody = document.getElementById('meta-tbody');
+    if (!tbody) return;
+
+    tbody.innerHTML = [...metaTrackerHistory].reverse().map((duel, reverseIndex) => {
+        const index = metaTrackerHistory.length - 1 - reverseIndex;
+        return `
+            <tr>
+                <td>${new Date(duel.date).toLocaleDateString()}</td>
+                <td>${escapeHtml(duel.myDeck)}</td>
+                <td>${escapeHtml(duel.oppDeck)}</td>
+                <td class="meta-result-${duel.result}">${duel.result.toUpperCase()}</td>
+                <td>${escapeHtml(duel.notes || '')}</td>
+                <td><button class="btn secondary" onclick="deleteMetaDuel(${index})">✕</button></td>
+            </tr>
+        `;
+    }).join('') || '<tr><td colspan="6"><div class="empty-state">No duels logged yet.</div></td></tr>';
+
+    renderMetaStats();
+    updateMetaKnownDecks();
+}
+
+function renderMetaStats() {
+    const wins = metaTrackerHistory.filter((d) => d.result === 'win').length;
+    const losses = metaTrackerHistory.filter((d) => d.result === 'loss').length;
+    const draws = metaTrackerHistory.filter((d) => d.result === 'draw').length;
+    const total = metaTrackerHistory.length;
+    const winRate = total ? Math.round((wins / total) * 100) : 0;
+
+    const summary = document.getElementById('meta-summary');
+    if (!summary) return;
+
+    summary.innerHTML = `
+        <div class="meta-stat-card"><div class="stat-val">${total}</div><div class="stat-label">Total</div></div>
+        <div class="meta-stat-card"><div class="stat-val stat-win">${wins}</div><div class="stat-label">Wins</div></div>
+        <div class="meta-stat-card"><div class="stat-val stat-loss">${losses}</div><div class="stat-label">Losses</div></div>
+        <div class="meta-stat-card"><div class="stat-val stat-draw">${draws}</div><div class="stat-label">Draws</div></div>
+        <div class="meta-stat-card"><div class="stat-val" style="color: var(--primary-color)">${winRate}%</div><div class="stat-label">Win Rate</div></div>
+    `;
+}
+
+function updateMetaKnownDecks() {
+    const datalist = document.getElementById('meta-known-decks');
+    if (!datalist) return;
+
+    const names = [...new Set(metaTrackerHistory.map((d) => d.oppDeck))];
+    datalist.innerHTML = names.map((name) => `<option value="${escapeHtml(name)}"></option>`).join('');
+}
+
+function logMetaDuel() {
+    const oppDeck = document.getElementById('meta-opp-deck')?.value.trim();
+    const myDeck = document.getElementById('meta-my-deck')?.value.trim();
+    const result = document.getElementById('meta-result')?.value;
+    const notes = document.getElementById('meta-notes')?.value.trim();
+
+    if (!oppDeck || !myDeck) {
+        addNotification('Fill in both deck names before logging a duel.', 'warning');
+        return;
+    }
+
+    metaTrackerHistory.push({ date: Date.now(), myDeck, oppDeck, result, notes });
+    saveMetaTrackerHistory();
+
+    document.getElementById('meta-opp-deck').value = '';
+    document.getElementById('meta-notes').value = '';
+    renderMetaTracker();
+}
+
+function deleteMetaDuel(index) {
+    metaTrackerHistory.splice(index, 1);
+    saveMetaTrackerHistory();
+    renderMetaTracker();
+}
+
+function clearMetaHistory() {
+    if (!confirm('Clear all duel history? This cannot be undone.')) return;
+    metaTrackerHistory = [];
+    saveMetaTrackerHistory();
+    renderMetaTracker();
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// LP CALCULATOR — no login required, in-memory only for the current
+// session (the tool this was ported from didn't persist LP across reloads
+// either, so there's nothing here worth writing to localStorage).
+// ══════════════════════════════════════════════════════════════════════════
+const lpState = { p1: 8000, p2: 8000, start: 8000, scores: [0, 0] };
+
+function renderLpDisplay() {
+    [1, 2].forEach((player) => {
+        const lp = lpState[`p${player}`];
+        const display = document.getElementById(`lp${player}-display`);
+        if (!display) return;
+        display.textContent = lp.toLocaleString();
+        display.className = 'lp-display' + (lp === 0 ? ' zero' : lp <= lpState.start * 0.25 ? ' low' : '');
+    });
+}
+
+function lpAction(player, op) {
+    const input = document.getElementById(`lp${player}-input`);
+    const amount = parseInt(input?.value, 10) || 0;
+    const current = lpState[`p${player}`];
+    let next = current;
+    let historyLabel = '';
+
+    if (op === 'damage' && amount > 0) {
+        next = Math.max(0, current - amount);
+        historyLabel = `P${player} took ${amount} damage (${current} → ${next})`;
+    } else if (op === 'heal' && amount > 0) {
+        next = current + amount;
+        historyLabel = `P${player} gained ${amount} LP (${current} → ${next})`;
+    } else if (op === 'set' && amount > 0) {
+        next = amount;
+        historyLabel = `P${player} LP set to ${amount}`;
+    } else if (op === 'half') {
+        next = Math.floor(current / 2);
+        historyLabel = `P${player} LP halved (${current} → ${next})`;
+    } else {
+        return;
+    }
+
+    lpState[`p${player}`] = next;
+    renderLpDisplay();
+    if (input) input.value = '';
+
+    const historyEl = document.getElementById('lp-history');
+    if (historyEl) {
+        const entry = document.createElement('div');
+        entry.className = `lp-hist-entry ${op === 'damage' || op === 'half' ? 'dmg' : op === 'heal' ? 'heal' : ''}`;
+        entry.textContent = historyLabel;
+        historyEl.insertBefore(entry, historyEl.firstChild);
+    }
+
+    if (lpState[`p${player}`] <= 0) {
+        const winner = player === 1 ? 2 : 1;
+        lpState.scores[winner - 1] += 1;
+        renderLpScores();
+        setTimeout(() => alert(`Player ${winner} wins the duel!`), 50);
+    }
+}
+
+function renderLpScores() {
+    const scoreP1 = document.getElementById('lp-score-p1');
+    const scoreP2 = document.getElementById('lp-score-p2');
+    if (scoreP1) scoreP1.textContent = lpState.scores[0];
+    if (scoreP2) scoreP2.textContent = lpState.scores[1];
+}
+
+function resetLpGame() {
+    lpState.p1 = lpState.start;
+    lpState.p2 = lpState.start;
+    const historyEl = document.getElementById('lp-history');
+    if (historyEl) historyEl.innerHTML = '';
+    renderLpDisplay();
+}
+
+function resetLpScores() {
+    lpState.scores = [0, 0];
+    renderLpScores();
+}
+
+function setLpMode(mode, buttonEl) {
+    document.querySelectorAll('.lp-mode-btn').forEach((b) => b.classList.remove('active'));
+    buttonEl?.classList.add('active');
+    lpState.start = mode === 'duel-links' ? 4000 : 8000;
+    resetLpGame();
+}
+
+document.getElementById('lp1-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') lpAction(1, 'damage');
+});
+document.getElementById('lp2-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') lpAction(2, 'damage');
+});
+
+function flipCoin() {
+    const result = Math.random() < 0.5 ? 'Heads' : 'Tails';
+    const el = document.getElementById('lp-coin-dice-result');
+    if (el) el.textContent = result;
+}
+
+function rollDice() {
+    const result = Math.ceil(Math.random() * 6);
+    const el = document.getElementById('lp-coin-dice-result');
+    if (el) el.textContent = `🎲 ${result}`;
 }
 
 if (document.getElementById('decklist-form')) {

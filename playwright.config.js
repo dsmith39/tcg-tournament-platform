@@ -41,7 +41,6 @@ module.exports = defineConfig({
     env: {
       NODE_ENV: 'production',
       PORT: '3200',
-      MONGODB_URI: 'mongodb://127.0.0.1:27017/tcg-playwright-placeholder',
       JWT_SECRET: 'playwright-local-secret'
     }
   }

@@ -14,6 +14,9 @@
         <div class="header-container">
             <div class="logo">🎴 TCG Tournament</div>
             <nav id="nav-menu">
+                <button onclick="switchSection('card-lookup')" id="card-lookup-btn">Card Lookup</button>
+                <button onclick="switchSection('meta-tracker')" id="meta-tracker-btn">Meta Tracker</button>
+                <button onclick="switchSection('lp-calc')" id="lp-calc-btn">LP Calculator</button>
                 <button onclick="switchSection('dashboard')" id="dashboard-btn" style="display:none;">Dashboard</button>
                 <button onclick="switchSection('create')" id="create-btn" style="display:none;">Create</button>
                 <button onclick="switchSection('decklists')" id="decklists-btn" style="display:none;">Decklists</button>
@@ -286,6 +289,8 @@
                             </div>
                         </div>
 
+                        <div id="deck-stats" class="deck-stats"></div>
+
                         <div class="form-group">
                             <label for="decklist-notes">Notes (optional)</label>
                             <textarea id="decklist-notes" rows="3" placeholder="Optional notes"></textarea>
@@ -325,6 +330,107 @@
             </div>
         </section>
 
+        <!-- Card Lookup Section -->
+        <section id="card-lookup">
+            <h1>Card Lookup</h1>
+            <p>Search the local Yu-Gi-Oh card database.</p>
+            <div class="card-lookup-search">
+                <input type="text" id="card-lookup-input" placeholder="Search card name..." autocomplete="off">
+                <button class="btn" onclick="searchCardLookup()">Search</button>
+            </div>
+            <div id="card-lookup-results" class="card-lookup-grid"></div>
+            <div id="card-lookup-detail" class="card-lookup-detail hidden"></div>
+        </section>
+
+        <!-- Meta Tracker Section -->
+        <section id="meta-tracker">
+            <h1>Meta Tracker</h1>
+            <p>Log your duels and track your win rate.</p>
+            <div class="meta-tracker-layout">
+                <div class="meta-log-pane">
+                    <h3>Log a Duel</h3>
+                    <div class="form-group">
+                        <label for="meta-opp-deck">Opponent Deck</label>
+                        <input type="text" id="meta-opp-deck" list="meta-known-decks" placeholder="e.g. Blue-Eyes">
+                        <datalist id="meta-known-decks"></datalist>
+                    </div>
+                    <div class="form-group">
+                        <label for="meta-my-deck">My Deck</label>
+                        <input type="text" id="meta-my-deck" placeholder="e.g. Dark Magician">
+                    </div>
+                    <div class="form-group">
+                        <label for="meta-result">Result</label>
+                        <select id="meta-result">
+                            <option value="win">Win</option>
+                            <option value="loss">Loss</option>
+                            <option value="draw">Draw</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="meta-notes">Notes (optional)</label>
+                        <input type="text" id="meta-notes" placeholder="Optional notes">
+                    </div>
+                    <button class="btn" onclick="logMetaDuel()">Log Duel</button>
+                </div>
+                <div class="meta-stats-pane">
+                    <h3>Stats</h3>
+                    <div id="meta-summary" class="meta-summary"></div>
+                    <h4>Duel History</h4>
+                    <div class="table-wrap">
+                        <table id="meta-table">
+                            <thead><tr><th>Date</th><th>My Deck</th><th>Opponent</th><th>Result</th><th>Notes</th><th></th></tr></thead>
+                            <tbody id="meta-tbody"></tbody>
+                        </table>
+                    </div>
+                    <button class="btn secondary" onclick="clearMetaHistory()">Clear All History</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- LP Calculator Section -->
+        <section id="lp-calc">
+            <h1>LP Calculator</h1>
+            <div class="lp-mode-toggle">
+                <button class="btn secondary lp-mode-btn active" data-mode="master-duel" onclick="setLpMode('master-duel', this)">Master Duel <small>(8000 LP)</small></button>
+                <button class="btn secondary lp-mode-btn" data-mode="duel-links" onclick="setLpMode('duel-links', this)">Duel Links <small>(4000 LP)</small></button>
+            </div>
+            <div class="lp-layout">
+                <div class="lp-player" id="lp-p1">
+                    <h2 class="player-label" contenteditable="true">Player 1</h2>
+                    <div class="lp-display" id="lp1-display">8000</div>
+                    <input type="number" id="lp1-input" placeholder="Amount" min="0">
+                    <div class="lp-btn-group">
+                        <button class="btn secondary" onclick="lpAction(1, 'damage')">- Damage</button>
+                        <button class="btn secondary" onclick="lpAction(1, 'heal')">+ Heal</button>
+                        <button class="btn secondary" onclick="lpAction(1, 'set')">Set</button>
+                        <button class="btn secondary" onclick="lpAction(1, 'half')">½ LP</button>
+                    </div>
+                </div>
+                <div class="lp-center">
+                    <button class="btn secondary" onclick="resetLpGame()">Reset Game</button>
+                    <button class="btn secondary" onclick="resetLpScores()">Reset Scores</button>
+                    <div class="lp-score-board"><span id="lp-score-p1">0</span> — <span id="lp-score-p2">0</span></div>
+                    <div id="lp-history" class="lp-history"></div>
+                    <div class="lp-coin-dice">
+                        <button class="btn secondary" onclick="flipCoin()">Flip Coin</button>
+                        <button class="btn secondary" onclick="rollDice()">Roll Dice</button>
+                        <div id="lp-coin-dice-result"></div>
+                    </div>
+                </div>
+                <div class="lp-player" id="lp-p2">
+                    <h2 class="player-label" contenteditable="true">Player 2</h2>
+                    <div class="lp-display" id="lp2-display">8000</div>
+                    <input type="number" id="lp2-input" placeholder="Amount" min="0">
+                    <div class="lp-btn-group">
+                        <button class="btn secondary" onclick="lpAction(2, 'damage')">- Damage</button>
+                        <button class="btn secondary" onclick="lpAction(2, 'heal')">+ Heal</button>
+                        <button class="btn secondary" onclick="lpAction(2, 'set')">Set</button>
+                        <button class="btn secondary" onclick="lpAction(2, 'half')">½ LP</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- User Profile Section -->
         <section id="user-profile">
             <button class="btn secondary" onclick="goBack()" style="margin-bottom: 1.5rem;">← Back</button>
@@ -356,7 +462,7 @@
     </main>
 
     <footer>
-        <p>&copy; 2026 TCG Tournament Platform. Powered by Node.js + MongoDB.</p>
+        <p>&copy; 2026 TCG Tournament Platform. Powered by Node.js + SQLite.</p>
     </footer>
 
     <!-- Socket.IO client is loaded first so realtime bindings are available to app code. -->

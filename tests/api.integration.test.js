@@ -1,5 +1,5 @@
 /*
- * End-to-end API integration tests (Node test runner + Supertest + in-memory MongoDB).
+ * End-to-end API integration tests (Node test runner + Supertest + in-memory SQLite).
  *
  * Coverage goals:
  * - Auth/session behavior
@@ -11,13 +11,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
-const mongoose = require('mongoose');
-const { MongoMemoryServer } = require('mongodb-memory-server');
 
-const { registerApi, ensureMongoConnection } = require('../server/api-server');
+const { registerApi } = require('../server/api-server');
 const { resetRateLimiters } = require('../server/security');
+const { resetDb } = require('../server/db');
 
-let mongod;
 let app;
 
 // Socket behavior is not under test here; provide minimal stub to satisfy registerApi.
@@ -40,34 +38,22 @@ async function registerUser(client, { username, email, password }) {
   return response.body;
 }
 
-test.before(async () => {
-  // Boot isolated in-memory MongoDB and mount the API once for the suite.
-  mongod = await MongoMemoryServer.create();
-  process.env.MONGODB_URI = mongod.getUri();
+test.before(() => {
+  // NODE_ENV=test makes server/db.js open an in-memory SQLite database instead
+  // of a file on disk, so the suite never touches server/data/app.db.
+  process.env.NODE_ENV = 'test';
   process.env.JWT_SECRET = 'test-jwt-secret';
+  resetDb();
 
   app = express();
   // Trust proxy headers during tests so X-Forwarded-For can represent different client IPs.
   app.set('trust proxy', true);
   registerApi(app, buildIoStub());
-  await ensureMongoConnection();
 });
 
-test.after(async () => {
-  if (mongoose.connection.readyState !== 0) {
-    await mongoose.connection.dropDatabase();
-    await mongoose.connection.close();
-  }
-
-  if (mongod) {
-    await mongod.stop();
-  }
-});
-
-test.beforeEach(async () => {
-  // Clear MongoDB documents so each test starts with a clean data slate.
-  const collections = await mongoose.connection.db.collections();
-  await Promise.all(collections.map((collection) => collection.deleteMany({})));
+test.beforeEach(() => {
+  // Fresh in-memory database per test so each test starts with a clean data slate.
+  resetDb();
 
   // Reset in-memory rate limit counters so IP-keyed auth buckets from earlier tests
   // don't carry over and cause unexpected 429 responses in unrelated tests.
