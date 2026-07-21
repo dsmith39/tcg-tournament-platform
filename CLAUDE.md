@@ -222,4 +222,4 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to main and all PRs:
 4. `npm run test:e2e`
 5. Upload Playwright report and test-results artifacts
 
-Node 22.11 is pinned in CI (bumped from 20 during the MongoDB → SQLite migration — `node:sqlite` needs Node ≥22.5). `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` is set for GitHub-hosted runner action compatibility.
+Node 24 is pinned in CI (bumped from 20 during the MongoDB → SQLite migration). `node:sqlite` exists from Node 22.5.0, but requires the `--experimental-sqlite` CLI flag on every 22.x release before 22.13.0 — an early attempt to pin CI to `'22.11'` hit exactly that gap (`ERR_UNKNOWN_BUILTIN_MODULE`) since `require('node:sqlite')` fails outright without the flag on those versions. Pinning to Node 24 sidesteps the flag question entirely. `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` is set for GitHub-hosted runner action compatibility.

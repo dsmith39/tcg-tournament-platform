@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "dev": "nodemon server.js",
