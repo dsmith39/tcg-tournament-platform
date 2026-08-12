@@ -13,7 +13,6 @@
  * Socket.IO entirely and server/realtime.js broadcasts through a separate
  * WebSocket API (server/ws-handler/) instead -- see server/realtime.js.
  */
-const path = require('path');
 const http = require('http');
 const express = require('express');
 require('dotenv').config();
@@ -24,9 +23,9 @@ const { attachSocketIo } = require('./server/realtime');
 const host = process.env.HOST || '127.0.0.1';
 const port = Number(process.env.PORT || 3001);
 const useSocketIo = (process.env.REALTIME_TRANSPORT || 'socketio') === 'socketio';
-const frontendHtmlPath = path.resolve(__dirname, 'tcg-frontend-updated.html');
-const frontendCssPath = path.resolve(__dirname, 'tcg-frontend.css');
-const frontendJsPath = path.resolve(__dirname, 'tcg-frontend.js');
+const FRONTEND_HTML = 'tcg-frontend-updated.html';
+const FRONTEND_CSS = 'tcg-frontend.css';
+const FRONTEND_JS = 'tcg-frontend.js';
 
 const expressApp = express();
 const server = http.createServer(expressApp);
@@ -49,18 +48,22 @@ if (useSocketIo) {
 // Mount API endpoints after middleware/server primitives are ready.
 registerApi(expressApp);
 
-// Serve the legacy static frontend assets directly.
+// Serve the legacy static frontend assets directly. Pass a bare filename with
+// a `root` option rather than a precomputed absolute path -- res.sendFile()
+// runs the path argument through encodeURI(), which turns Windows backslash
+// separators into %5C and breaks the lookup on Windows dev machines. `root`
+// itself is never encodeURI'd, so it can safely be an absolute path.
 expressApp.get('/tcg-frontend.css', (req, res) => {
-  res.sendFile(frontendCssPath);
+  res.sendFile(FRONTEND_CSS, { root: __dirname });
 });
 
 expressApp.get('/tcg-frontend.js', (req, res) => {
-  res.sendFile(frontendJsPath);
+  res.sendFile(FRONTEND_JS, { root: __dirname });
 });
 
 // Every non-API and non-Socket.IO route should render the single-page frontend shell.
 expressApp.get(/^(?!\/(api|socket\.io)).*/, (req, res) => {
-  res.sendFile(frontendHtmlPath);
+  res.sendFile(FRONTEND_HTML, { root: __dirname });
 });
 
 // Bind host/port from environment for local and CI compatibility.

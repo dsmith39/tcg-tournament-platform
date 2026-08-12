@@ -56,12 +56,20 @@ function registerApi(app) {
   // with Access-Control-Allow-Credentials, or the browser drops the response.
   // CORS_ALLOWED_ORIGINS (set in the Lambda's env, see template.yaml) is a
   // comma-separated allowlist; unset (local dev, same-origin) falls back to
-  // reflecting whatever origin asked, which is harmless without credentials
-  // being requested cross-origin in the first place.
+  // reflecting whatever origin asked, which is harmless there since nothing
+  // is credentialed cross-origin locally. In production a missing allowlist
+  // would silently downgrade to reflecting any origin WITH credentials, which
+  // lets any site ride a visitor's cookies -- fail loudly at startup instead.
   const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
+  if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
+    throw new Error(
+      'CORS_ALLOWED_ORIGINS must be set in production -- refusing to start with a ' +
+      'credentialed CORS policy that reflects any origin.'
+    );
+  }
   app.use(cors({
     origin: allowedOrigins.length ? allowedOrigins : true,
     credentials: true

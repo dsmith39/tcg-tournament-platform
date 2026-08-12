@@ -178,7 +178,11 @@ router.get('/card-image/:id', (req, res) => {
 
   const contentType = CONTENT_TYPE_BY_EXT[path.extname(filePath).toLowerCase()] || 'image/jpeg';
   res.set('Cache-Control', 'public, max-age=31536000, immutable');
-  res.type(contentType).sendFile(filePath);
+  // Pass a bare filename with `root: IMAGE_DIR` rather than the absolute filePath --
+  // res.sendFile() runs its path argument through encodeURI(), which turns Windows
+  // backslash separators into %5C and breaks the lookup on Windows dev machines.
+  // `root` itself is never encodeURI'd, so it can safely be an absolute path.
+  res.type(contentType).sendFile(path.basename(filePath), { root: IMAGE_DIR });
 });
 
 router.get('/health', (req, res) => {
