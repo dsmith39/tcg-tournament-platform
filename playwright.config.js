@@ -41,7 +41,12 @@ module.exports = defineConfig({
     env: {
       NODE_ENV: 'production',
       PORT: '3200',
-      JWT_SECRET: 'playwright-local-secret'
+      JWT_SECRET: 'playwright-local-secret',
+      // The production-mode server now refuses to start without an explicit
+      // CORS allowlist (see server/api-server.js) -- this run is same-origin
+      // (frontend + API both served from baseURL above) so it just needs to
+      // name its own origin.
+      CORS_ALLOWED_ORIGINS: 'http://127.0.0.1:3200'
     }
   }
 });
