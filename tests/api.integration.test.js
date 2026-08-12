@@ -52,6 +52,30 @@ test.before(async () => {
   // Trust proxy headers during tests so X-Forwarded-For can represent different client IPs.
   app.set('trust proxy', true);
   registerApi(app);
+
+  // Seed the in-memory card catalog (NODE_ENV=test -> :memory: SQLite, see
+  // card-database/src/db.js) with one fixture card for the /api/v7 tests below.
+  const cardsRepo = require('../card-database/src/models/cards');
+  cardsRepo.upsertMany([{
+    cardId: 89631139,
+    name: 'Blue-Eyes White Dragon',
+    type: 'Normal Monster',
+    frameType: 'normal',
+    description: 'This legendary dragon is a powerful engine of destruction.',
+    atk: 3000,
+    def: 2500,
+    level: 8,
+    race: 'Dragon',
+    attribute: 'LIGHT',
+    archetype: 'Blue-Eyes',
+    scale: null,
+    linkval: null,
+    linkmarkers: [],
+    banlistInfo: null,
+    images: [{ imageId: 89631139 }],
+    sets: [],
+    prices: null
+  }]);
 });
 
 test.after(async () => {
@@ -345,6 +369,205 @@ test('rate limit flow: auth limiter throttles repeated login attempts with struc
   assert.ok(resetHeader || retryAfterHeader, 'Expected auth limiter reset or retry-after header');
 });
 
+async function joinWithDecklist(client, { username, email }, tournamentId) {
+  await registerUser(client, { username, email, password: 'secret123' });
+
+  const decklistResponse = await client
+    .post('/api/decklists')
+    .send({
+      name: `${username} deck`,
+      game: 'ygo-tcg',
+      mainDeck: '3x Pot of Greed',
+      extraDeck: '',
+      sideDeck: '',
+      archetype: '',
+      notes: '',
+      isPublic: true
+    });
+  assert.equal(decklistResponse.status, 201);
+
+  const joinResponse = await client
+    .patch(`/api/tournaments/${tournamentId}/join`)
+    .send({ decklistId: decklistResponse.body._id });
+  assert.equal(joinResponse.status, 200);
+}
+
+// Registers an organizer plus `count` players, creates+starts a Swiss tournament,
+// and returns everything needed to drive match/round endpoints in tests below.
+async function setUpActiveSwissTournament(playerCount = 4) {
+  const organizerClient = request.agent(app);
+  await registerUser(organizerClient, {
+    username: 'organizer',
+    email: 'organizer@example.com',
+    password: 'secret123'
+  });
+
+  const tournamentResponse = await organizerClient
+    .post('/api/tournaments')
+    .send({
+      name: 'Lifecycle Weekly',
+      game: 'ygo-tcg',
+      format: 'swiss',
+      maxPlayers: 16,
+      description: 'Match lifecycle coverage'
+    });
+  assert.equal(tournamentResponse.status, 201);
+  const tournamentId = tournamentResponse.body._id;
+
+  const playerClients = [];
+  for (let i = 1; i <= playerCount; i += 1) {
+    const client = request.agent(app);
+    await joinWithDecklist(client, { username: `player${i}`, email: `player${i}@example.com` }, tournamentId);
+    playerClients.push(client);
+  }
+
+  const startResponse = await organizerClient.patch(`/api/tournaments/${tournamentId}/start`);
+  assert.equal(startResponse.status, 200);
+  assert.equal(startResponse.body.status, 'active');
+  assert.equal(startResponse.body.rounds.length, 1);
+
+  return { organizerClient, playerClients, tournamentId, tournament: startResponse.body };
+}
+
+function findMatchForPlayer(tournament, playerUsername) {
+  const round = tournament.rounds[tournament.rounds.length - 1];
+  const match = round.matches.find(
+    (m) => m.player1?.username === playerUsername || m.player2?.username === playerUsername
+  );
+  return { round, match };
+}
+
+// Round-1 Swiss pairing is randomly shuffled (no records to seed off yet), so
+// which two of the four registered players end up paired together varies
+// between runs -- always resolve a client from the match's actual usernames
+// rather than assuming a fixed playerClients index lines up with an opponent.
+function clientForUsername(playerClients, username) {
+  const index = Number(username.replace('player', '')) - 1;
+  return playerClients[index];
+}
+
+test('match flow: report -> dispute -> organizer resolve -> reopen -> re-confirm', async () => {
+  const { organizerClient, playerClients, tournamentId, tournament } = await setUpActiveSwissTournament(4);
+  const { round, match } = findMatchForPlayer(tournament, 'player1');
+  assert.ok(match, 'expected player1 to be in a match');
+  assert.equal(match.player2 !== null, true, 'expected a non-bye match for a 4-player Swiss round 1');
+
+  const reporterClient = clientForUsername(playerClients, match.player1.username);
+  const opponentClient = clientForUsername(playerClients, match.player2.username);
+  const outsiderUsername = ['player1', 'player2', 'player3', 'player4']
+    .find((u) => u !== match.player1.username && u !== match.player2.username);
+  const outsiderClient = clientForUsername(playerClients, outsiderUsername);
+
+  const reportResponse = await reporterClient
+    .patch(`/api/tournaments/${tournamentId}/matches/${match._id}/report`)
+    .send({ result: 'player1' });
+  assert.equal(reportResponse.status, 200);
+  const reportedMatch = findMatchForPlayer(reportResponse.body, 'player1').match;
+  assert.equal(reportedMatch.resultStatus, 'awaiting-confirmation');
+  assert.equal(reportedMatch.result, 'player1');
+
+  const disputeResponse = await opponentClient
+    .patch(`/api/tournaments/${tournamentId}/matches/${match._id}/dispute`)
+    .send({ reason: 'Wrong result reported' });
+  assert.equal(disputeResponse.status, 200);
+  const disputedMatch = findMatchForPlayer(disputeResponse.body, 'player1').match;
+  assert.equal(disputedMatch.resultStatus, 'disputed');
+  assert.equal(disputedMatch.disputeReason, 'Wrong result reported');
+
+  // Reporting again while disputed is rejected -- only the organizer can resolve it.
+  const blockedReportResponse = await reporterClient
+    .patch(`/api/tournaments/${tournamentId}/matches/${match._id}/report`)
+    .send({ result: 'player1' });
+  assert.equal(blockedReportResponse.status, 400);
+
+  // A non-participant, non-organizer can't resolve the dispute.
+  const outsiderResolveResponse = await outsiderClient
+    .patch(`/api/tournaments/${tournamentId}/matches/${match._id}/resolve`)
+    .send({ result: 'player1', note: 'not the organizer' });
+  assert.equal(outsiderResolveResponse.status, 403);
+
+  const resolveResponse = await organizerClient
+    .patch(`/api/tournaments/${tournamentId}/matches/${match._id}/resolve`)
+    .send({ result: 'player2', note: 'Reviewed replay, player2 actually won' });
+  assert.equal(resolveResponse.status, 200);
+  const resolvedMatch = findMatchForPlayer(resolveResponse.body, 'player1').match;
+  assert.equal(resolvedMatch.resultStatus, 'confirmed');
+  assert.equal(resolvedMatch.result, 'player2');
+  assert.equal(resolvedMatch.resolutionNote, 'Reviewed replay, player2 actually won');
+
+  const reopenResponse = await organizerClient
+    .patch(`/api/tournaments/${tournamentId}/matches/${match._id}/reopen`)
+    .send({ note: 'Need to re-review' });
+  assert.equal(reopenResponse.status, 200);
+  const reopenedMatch = findMatchForPlayer(reopenResponse.body, 'player1').match;
+  assert.equal(reopenedMatch.resultStatus, 'pending');
+  assert.equal(reopenedMatch.result, 'pending');
+
+  // Re-report and have the opponent confirm this time instead of disputing.
+  const secondReportResponse = await reporterClient
+    .patch(`/api/tournaments/${tournamentId}/matches/${match._id}/report`)
+    .send({ result: 'player1' });
+  assert.equal(secondReportResponse.status, 200);
+
+  const confirmResponse = await opponentClient
+    .patch(`/api/tournaments/${tournamentId}/matches/${match._id}/confirm`);
+  assert.equal(confirmResponse.status, 200);
+  const confirmedMatch = findMatchForPlayer(confirmResponse.body, 'player1').match;
+  assert.equal(confirmedMatch.resultStatus, 'confirmed');
+  assert.equal(confirmedMatch.result, 'player1');
+});
+
+test('round flow: lock active round, generate next round, and start it', async () => {
+  const { organizerClient, playerClients, tournamentId, tournament } = await setUpActiveSwissTournament(4);
+  const round1Id = tournament.rounds[0]._id;
+
+  // Confirm every match in round 1 so the round becomes lockable.
+  let latestTournament = tournament;
+  for (const match of tournament.rounds[0].matches) {
+    const reporterUsername = match.player1.username;
+    const reporterClient = playerClients.find((_, idx) => `player${idx + 1}` === reporterUsername);
+    const opponentUsername = match.player2.username;
+    const opponentClient = playerClients.find((_, idx) => `player${idx + 1}` === opponentUsername);
+
+    const reportResponse = await reporterClient
+      .patch(`/api/tournaments/${tournamentId}/matches/${match._id}/report`)
+      .send({ result: 'player1' });
+    assert.equal(reportResponse.status, 200);
+
+    const confirmResponse = await opponentClient
+      .patch(`/api/tournaments/${tournamentId}/matches/${match._id}/confirm`);
+    assert.equal(confirmResponse.status, 200);
+    latestTournament = confirmResponse.body;
+  }
+
+  assert.equal(latestTournament.roundMeta.canLockActiveRound, true);
+
+  // A non-organizer can't lock the round.
+  const outsiderLockResponse = await playerClients[0]
+    .patch(`/api/tournaments/${tournamentId}/rounds/${round1Id}/lock`);
+  assert.equal(outsiderLockResponse.status, 403);
+
+  const lockResponse = await organizerClient
+    .patch(`/api/tournaments/${tournamentId}/rounds/${round1Id}/lock`);
+  assert.equal(lockResponse.status, 200);
+  assert.equal(lockResponse.body.rounds[0].status, 'locked');
+
+  const nextRoundResponse = await organizerClient
+    .post(`/api/tournaments/${tournamentId}/rounds/next`);
+  assert.equal(nextRoundResponse.status, 200);
+  assert.equal(nextRoundResponse.body.status, 'active', 'tournament should still be active (min 3 Swiss rounds for 4 players)');
+  assert.equal(nextRoundResponse.body.rounds.length, 2);
+  assert.equal(nextRoundResponse.body.rounds[1].status, 'not_started');
+
+  const round2Id = nextRoundResponse.body.rounds[1]._id;
+
+  const startRoundResponse = await organizerClient
+    .patch(`/api/tournaments/${tournamentId}/rounds/${round2Id}/start`);
+  assert.equal(startRoundResponse.status, 200);
+  assert.equal(startRoundResponse.body.rounds[1].status, 'active');
+  assert.equal(startRoundResponse.body.roundMeta.activeRoundId, round2Id);
+});
+
 test('rate limit flow: auth limiter key is isolated by client ip', async () => {
   const registerResponse = await request(app)
     .post('/api/auth/register')
@@ -388,4 +611,58 @@ test('rate limit flow: auth limiter key is isolated by client ip', async () => {
   assert.notEqual(secondIpResponse.status, 429);
   assert.equal(secondIpResponse.status, 400);
   assert.equal(secondIpResponse.body.error, 'Invalid credentials');
+});
+
+test('card database: cardinfo.php looks up a card by id', async () => {
+  const response = await request(app).get('/api/v7/cardinfo.php?id=89631139');
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.data.length, 1);
+  const [card] = response.body.data;
+  assert.equal(card.id, 89631139);
+  assert.equal(card.name, 'Blue-Eyes White Dragon');
+  assert.equal(card.atk, 3000);
+  // No CARD_IMAGE_BASE_URL is set in tests, so image URLs route through this app's own endpoint.
+  assert.ok(card.card_images[0].image_url.includes('/api/v7/card-image/89631139'));
+});
+
+test('card database: cardinfo.php falls back to fname search and reports no-match as 404', async () => {
+  const matchResponse = await request(app).get('/api/v7/cardinfo.php?fname=Blue-Eyes');
+  assert.equal(matchResponse.status, 200);
+  assert.equal(matchResponse.body.data[0].name, 'Blue-Eyes White Dragon');
+
+  const noMatchResponse = await request(app).get('/api/v7/cardinfo.php?fname=Definitely Not A Real Card');
+  assert.equal(noMatchResponse.status, 404);
+  assert.ok(noMatchResponse.body.error);
+});
+
+test('card database: cardinfo.php rejects a non-numeric id', async () => {
+  const response = await request(app).get('/api/v7/cardinfo.php?id=not-a-number');
+
+  assert.equal(response.status, 400);
+  assert.ok(response.body.error);
+});
+
+test('card database: card-image returns 404 when no local image file exists', async () => {
+  // The test env never downloads real card art (npm run cards:download-images
+  // is an operator-run maintenance step), so a lookup for a real card id should
+  // still correctly report "not found locally" rather than erroring.
+  const response = await request(app).get('/api/v7/card-image/89631139');
+
+  assert.equal(response.status, 404);
+  assert.ok(response.body.message.includes('not found locally'));
+});
+
+test('card database: card-image rejects a non-numeric id', async () => {
+  const response = await request(app).get('/api/v7/card-image/not-a-number');
+
+  assert.equal(response.status, 400);
+});
+
+test('card database: health endpoint reports card count', async () => {
+  const response = await request(app).get('/api/v7/health');
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.cards, 1);
 });
