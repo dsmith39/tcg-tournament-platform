@@ -1,5 +1,6 @@
 /*
- * End-to-end API integration tests (Node test runner + Supertest + in-memory SQLite).
+ * End-to-end API integration tests (Node test runner + Supertest + a local
+ * dynalite instance standing in for DynamoDB).
  *
  * Coverage goals:
  * - Auth/session behavior
@@ -11,12 +12,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
+const dynalite = require('dynalite');
 
 const { registerApi } = require('../server/api-server');
 const { resetRateLimiters } = require('../server/security');
-const { resetDb } = require('../server/db');
 
 let app;
+let dynaliteServer;
 
 // Socket behavior is not under test here; provide minimal stub to satisfy registerApi.
 function buildIoStub() {
@@ -38,12 +40,21 @@ async function registerUser(client, { username, email, password }) {
   return response.body;
 }
 
-test.before(() => {
-  // NODE_ENV=test makes server/db.js open an in-memory SQLite database instead
-  // of a file on disk, so the suite never touches server/data/app.db.
+test.before(async () => {
   process.env.NODE_ENV = 'test';
   process.env.JWT_SECRET = 'test-jwt-secret';
-  resetDb();
+
+  // A local dynalite instance stands in for DynamoDB; server/dynamo.js
+  // points at it whenever DYNAMODB_ENDPOINT is set, mirroring the old
+  // NODE_ENV=test -> :memory: SQLite behavior.
+  dynaliteServer = dynalite({ createTableMs: 0, deleteTableMs: 0, updateTableMs: 0 });
+  await new Promise((resolve, reject) => {
+    dynaliteServer.listen(0, (err) => (err ? reject(err) : resolve()));
+  });
+  process.env.DYNAMODB_ENDPOINT = `http://localhost:${dynaliteServer.address().port}`;
+
+  const { resetTables } = require('../server/dynamo');
+  await resetTables();
 
   app = express();
   // Trust proxy headers during tests so X-Forwarded-For can represent different client IPs.
@@ -51,9 +62,16 @@ test.before(() => {
   registerApi(app, buildIoStub());
 });
 
-test.beforeEach(() => {
-  // Fresh in-memory database per test so each test starts with a clean data slate.
-  resetDb();
+test.after(async () => {
+  if (dynaliteServer) {
+    await new Promise((resolve) => dynaliteServer.close(resolve));
+  }
+});
+
+test.beforeEach(async () => {
+  // Fresh tables per test so each test starts with a clean data slate.
+  const { resetTables } = require('../server/dynamo');
+  await resetTables();
 
   // Reset in-memory rate limit counters so IP-keyed auth buckets from earlier tests
   // don't carry over and cause unexpected 429 responses in unrelated tests.

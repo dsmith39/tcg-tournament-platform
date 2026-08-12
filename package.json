@@ -20,6 +20,9 @@
     "cards:download-images": "node card-database/src/download_card_images.js"
   },
   "dependencies": {
+    "@aws-sdk/client-apigatewaymanagementapi": "^3.906.0",
+    "@aws-sdk/client-dynamodb": "^3.906.0",
+    "@aws-sdk/lib-dynamodb": "^3.906.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
@@ -31,6 +34,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
+    "dynalite": "^4.0.0",
     "nodemon": "^3.1.14",
     "supertest": "^7.1.4"
   }

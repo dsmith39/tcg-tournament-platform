@@ -3,10 +3,10 @@
  *
  * Architecture notes:
  * - Exports registerApi(app, io) so HTTP wiring stays in server.js.
- * - Persistence is SQLite via server/db.js + server/models/*, not MongoDB.
+ * - Persistence is DynamoDB via server/dynamo.js + server/models/*.
  *   Tournament/round/match mutation logic below is storage-agnostic: it
  *   loads a whole tournament, mutates the in-memory tree, and saves it back
- *   whole -- exactly the same shape whether the row lives in Mongo or SQLite.
+ *   whole -- the same shape regardless of the backing store.
  * - Uses validation + security modules to keep handlers focused on domain logic.
  */
 const express = require('express');
@@ -14,11 +14,11 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { getDb } = require('./db');
 const { generateId } = require('./models/id');
 const usersRepo = require('./models/users');
 const decklistsRepo = require('./models/decklists');
 const tournamentsRepo = require('./models/tournaments');
+const { TournamentVersionConflictError } = tournamentsRepo;
 const {
   gameEnumValues,
   registerBodySchema,
@@ -52,17 +52,21 @@ function registerApi(app, io) {
   // proxied live to db.ygoprodeck.com -- keeps the running app off the public API entirely.
   app.use('/api/v7', require('../card-database/src/api_router'));
 
-  // SQLite schema is created lazily on first access; this just surfaces boot-time errors early.
-  try {
-    getDb();
-  } catch (err) {
-    console.error('SQLite database unavailable:', err.message);
-  }
-
   // Shared enums come from the validation module so runtime validation and stored data stay aligned.
   const gameEnum = gameEnumValues;
 
   const toIdString = (value) => (value ? value.toString() : null);
+
+  // Route catch blocks call this instead of hardcoding a 500 so a tournament
+  // optimistic-locking conflict (two organizers/players racing a mutation on
+  // the same tournament) surfaces as a 409 the frontend can react to, rather
+  // than a generic server error.
+  const sendServerError = (res, error) => {
+    if (error instanceof TournamentVersionConflictError) {
+      return res.status(409).json({ error: error.message });
+    }
+    return res.status(500).json({ error: 'Server error' });
+  };
 
   const shuffleArray = (items) => {
     const copy = [...items];
@@ -787,7 +791,7 @@ function registerApi(app, io) {
   };
 
   const buildUserMatchStats = async (userId) => {
-    const joinedTournaments = tournamentsRepo.listByPlayer(userId);
+    const joinedTournaments = await tournamentsRepo.listByPlayer(userId);
 
     let wins = 0;
     let losses = 0;
@@ -1032,7 +1036,7 @@ function registerApi(app, io) {
         return res.status(401).json({ error: 'Invalid token' });
       }
 
-      const user = usersRepo.findById(decoded.id);
+      const user = await usersRepo.findById(decoded.id);
       if (!user) {
         return res.status(401).json({ error: 'Invalid token' });
       }
@@ -1119,7 +1123,7 @@ function registerApi(app, io) {
     try {
       const { email, password } = req.validated.body;
 
-      const user = usersRepo.findByEmail(email);
+      const user = await usersRepo.findByEmail(email);
       if (!user) return res.status(400).json({ error: 'Invalid credentials' });
 
       const validPassword = await bcrypt.compare(password, user.password);
@@ -1130,7 +1134,7 @@ function registerApi(app, io) {
 
       res.json({ user: { id: user._id, username: user.username, email } });
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
@@ -1148,7 +1152,7 @@ function registerApi(app, io) {
         return res.status(401).json({ error: 'Invalid refresh token' });
       }
 
-      const user = usersRepo.findById(decoded.id);
+      const user = await usersRepo.findById(decoded.id);
       if (!user) {
         clearAuthCookies(res);
         return res.status(401).json({ error: 'Invalid refresh token' });
@@ -1184,7 +1188,7 @@ function registerApi(app, io) {
         try {
           const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
           if (decoded?.type === 'refresh' && decoded?.id) {
-            const user = usersRepo.findById(decoded.id);
+            const user = await usersRepo.findById(decoded.id);
             if (user) {
               removeRefreshTokenFromUser(user, refreshToken);
               pruneRefreshTokens(user);
@@ -1200,13 +1204,13 @@ function registerApi(app, io) {
       res.json({ message: 'Logged out' });
     } catch (error) {
       clearAuthCookies(res);
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
   app.post('/api/auth/logout-all', authMiddleware, authLimiter, async (req, res) => {
     try {
-      const user = usersRepo.findById(req.user.id);
+      const user = await usersRepo.findById(req.user.id);
       if (!user) {
         clearAuthCookies(res);
         return res.status(404).json({ error: 'User not found' });
@@ -1220,13 +1224,13 @@ function registerApi(app, io) {
       res.json({ message: 'Logged out from all sessions' });
     } catch (error) {
       clearAuthCookies(res);
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
   // Get current user
   app.get('/api/auth/me', authMiddleware, async (req, res) => {
-    const user = usersRepo.findById(req.user.id);
+    const user = await usersRepo.findById(req.user.id);
     const { password, ...safeUser } = user;
     res.json(safeUser);
   });
@@ -1234,7 +1238,7 @@ function registerApi(app, io) {
   // Update current user's public profile
   app.patch('/api/users/me', authMiddleware, writeLimiter, validateRequest({ body: userProfileUpdateBodySchema }), async (req, res) => {
     try {
-      const user = usersRepo.findById(req.user.id);
+      const user = await usersRepo.findById(req.user.id);
       if (!user) return res.status(404).json({ error: 'User not found' });
 
       const sanitizeField = (value, maxLength) => {
@@ -1264,14 +1268,14 @@ function registerApi(app, io) {
       const profile = await buildUserProfileResponse(user);
       res.json(profile);
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
   // Public user profile for user portal pages
   app.get('/api/users/:id', async (req, res) => {
     try {
-      const user = usersRepo.findById(req.params.id);
+      const user = await usersRepo.findById(req.params.id);
       if (!user) return res.status(404).json({ error: 'User not found' });
 
       const profile = await buildUserProfileResponse(user);
@@ -1284,21 +1288,22 @@ function registerApi(app, io) {
   // Public recent decklists (visible to non-users)
   app.get('/api/decklists/recent', async (req, res) => {
     try {
-      const decklists = decklistsRepo.findRecentPublic(10).map((decklist) => {
-        const owner = usersRepo.findById(decklist.owner);
+      const publicDecklists = await decklistsRepo.findRecentPublic(10);
+      const decklists = await Promise.all(publicDecklists.map(async (decklist) => {
+        const owner = await usersRepo.findById(decklist.owner);
         return { ...decklist, owner: owner ? { _id: owner._id, username: owner.username } : null };
-      });
+      }));
 
       res.json(decklists);
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
   // Get single decklist (public or owner)
   app.get('/api/decklists/:id', async (req, res) => {
     try {
-      const decklist = decklistsRepo.findById(req.params.id);
+      const decklist = await decklistsRepo.findById(req.params.id);
 
       if (!decklist) return res.status(404).json({ error: 'Decklist not found' });
 
@@ -1311,7 +1316,7 @@ function registerApi(app, io) {
         return res.status(403).json({ error: 'This decklist is private' });
       }
 
-      const owner = usersRepo.findById(decklist.owner);
+      const owner = await usersRepo.findById(decklist.owner);
       res.json({ ...decklist, owner: owner ? { _id: owner._id, username: owner.username } : null });
     } catch (error) {
       res.status(404).json({ error: 'Decklist not found' });
@@ -1321,10 +1326,10 @@ function registerApi(app, io) {
   // Get authenticated user's decklists
   app.get('/api/decklists', authMiddleware, async (req, res) => {
     try {
-      const decklists = decklistsRepo.findByOwner(req.user.id);
+      const decklists = await decklistsRepo.findByOwner(req.user.id);
       res.json(decklists);
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
@@ -1342,7 +1347,7 @@ function registerApi(app, io) {
         notes = ''
       } = req.validated.body;
 
-      const decklist = decklistsRepo.create({
+      const decklist = await decklistsRepo.create({
         owner: req.user.id,
         name: name.trim(),
         game,
@@ -1365,7 +1370,7 @@ function registerApi(app, io) {
   app.patch('/api/decklists/:id', authMiddleware, writeLimiter, validateRequest({ params: tournamentIdParamsSchema, body: updateDecklistBodySchema }), async (req, res) => {
     try {
       const { id } = req.validated.params;
-      const decklist = decklistsRepo.findByIdForOwner(id, req.user.id);
+      const decklist = await decklistsRepo.findByIdForOwner(id, req.user.id);
       if (!decklist) return res.status(404).json({ error: 'Decklist not found' });
 
       const updatableFields = ['name', 'game', 'mainDeck', 'extraDeck', 'sideDeck', 'archetype', 'notes'];
@@ -1408,7 +1413,7 @@ function registerApi(app, io) {
   app.delete('/api/decklists/:id', authMiddleware, writeLimiter, validateRequest({ params: tournamentIdParamsSchema }), async (req, res) => {
     try {
       const { id } = req.validated.params;
-      const decklist = decklistsRepo.deleteByIdForOwner(id, req.user.id);
+      const decklist = await decklistsRepo.deleteByIdForOwner(id, req.user.id);
       if (!decklist) return res.status(404).json({ error: 'Decklist not found' });
       emitDecklistUpdate('deleted', decklist);
       res.json({ message: 'Decklist deleted' });
@@ -1420,17 +1425,17 @@ function registerApi(app, io) {
   // Get all tournaments
   app.get('/api/tournaments', async (req, res) => {
     try {
-      const tournaments = tournamentsRepo.listSummaries();
+      const tournaments = await tournamentsRepo.listSummaries();
       res.json(tournaments);
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
   // Create tournament
   app.post('/api/tournaments', authMiddleware, writeLimiter, validateRequest({ body: createTournamentBodySchema }), async (req, res) => {
     try {
-      const tournament = tournamentsRepo.create({
+      const tournament = await tournamentsRepo.create({
         ...req.validated.body,
         createdBy: req.user.id
       });
@@ -1452,7 +1457,7 @@ function registerApi(app, io) {
 
       res.json(buildTournamentResponse(tournament));
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
@@ -1460,18 +1465,18 @@ function registerApi(app, io) {
   app.delete('/api/tournaments/:id', authMiddleware, writeLimiter, validateRequest({ params: tournamentIdParamsSchema }), async (req, res) => {
     try {
       const { id } = req.validated.params;
-      const tournament = tournamentsRepo.findById(id);
+      const tournament = await tournamentsRepo.findById(id);
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
       if (tournament.createdBy.toString() !== req.user.id) {
         return res.status(403).json({ error: 'Not authorized' });
       }
 
-      tournamentsRepo.deleteById(id);
+      await tournamentsRepo.deleteById(id);
       emitTournamentUpdate('deleted', tournament);
       res.json({ message: 'Tournament deleted' });
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
@@ -1479,7 +1484,7 @@ function registerApi(app, io) {
   app.patch('/api/tournaments/:id/join', authMiddleware, writeLimiter, validateRequest({ params: tournamentIdParamsSchema, body: joinTournamentBodySchema }), async (req, res) => {
     try {
       const { id } = req.validated.params;
-      const tournament = tournamentsRepo.findById(id);
+      const tournament = await tournamentsRepo.findById(id);
       const { decklistId } = req.validated.body;
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
@@ -1497,7 +1502,7 @@ function registerApi(app, io) {
         return res.status(400).json({ error: 'Tournament is full' });
       }
 
-      const decklist = decklistsRepo.findByIdForOwner(decklistId, req.user.id);
+      const decklist = await decklistsRepo.findByIdForOwner(decklistId, req.user.id);
       if (!decklist) {
         return res.status(400).json({ error: 'Selected decklist was not found' });
       }
@@ -1522,7 +1527,7 @@ function registerApi(app, io) {
       emitTournamentUpdate('joined', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
@@ -1530,7 +1535,7 @@ function registerApi(app, io) {
   app.patch('/api/tournaments/:id/leave', authMiddleware, writeLimiter, validateRequest({ params: tournamentIdParamsSchema }), async (req, res) => {
     try {
       const { id } = req.validated.params;
-      const tournament = tournamentsRepo.findById(id);
+      const tournament = await tournamentsRepo.findById(id);
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -1556,7 +1561,7 @@ function registerApi(app, io) {
       emitTournamentUpdate('left', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
@@ -1564,7 +1569,7 @@ function registerApi(app, io) {
   app.patch('/api/tournaments/:id/start', authMiddleware, matchActionLimiter, validateRequest({ params: tournamentIdParamsSchema }), async (req, res) => {
     try {
       const { id } = req.validated.params;
-      const tournament = tournamentsRepo.findById(id);
+      const tournament = await tournamentsRepo.findById(id);
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -1598,7 +1603,7 @@ function registerApi(app, io) {
       emitTournamentUpdate('started', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
@@ -1606,7 +1611,7 @@ function registerApi(app, io) {
   app.patch('/api/tournaments/:id/matches/:matchId/report', authMiddleware, matchActionLimiter, validateRequest({ params: matchIdParamsSchema, body: matchReportBodySchema }), async (req, res) => {
     try {
       const { id, matchId } = req.validated.params;
-      const tournament = tournamentsRepo.findById(id);
+      const tournament = await tournamentsRepo.findById(id);
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -1677,7 +1682,7 @@ function registerApi(app, io) {
       emitTournamentUpdate('match-reported', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
@@ -1685,7 +1690,7 @@ function registerApi(app, io) {
   app.patch('/api/tournaments/:id/matches/:matchId/confirm', authMiddleware, matchActionLimiter, validateRequest({ params: matchIdParamsSchema }), async (req, res) => {
     try {
       const { id, matchId } = req.validated.params;
-      const tournament = tournamentsRepo.findById(id);
+      const tournament = await tournamentsRepo.findById(id);
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -1751,7 +1756,7 @@ function registerApi(app, io) {
       emitTournamentUpdate('match-confirmed', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
@@ -1759,7 +1764,7 @@ function registerApi(app, io) {
   app.patch('/api/tournaments/:id/matches/:matchId/dispute', authMiddleware, matchActionLimiter, validateRequest({ params: matchIdParamsSchema, body: matchDisputeBodySchema }), async (req, res) => {
     try {
       const { id, matchId } = req.validated.params;
-      const tournament = tournamentsRepo.findById(id);
+      const tournament = await tournamentsRepo.findById(id);
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -1821,7 +1826,7 @@ function registerApi(app, io) {
       emitTournamentUpdate('match-disputed', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
@@ -1829,7 +1834,7 @@ function registerApi(app, io) {
   app.patch('/api/tournaments/:id/matches/:matchId/resolve', authMiddleware, matchActionLimiter, validateRequest({ params: matchIdParamsSchema, body: matchResolveBodySchema }), async (req, res) => {
     try {
       const { id, matchId } = req.validated.params;
-      const tournament = tournamentsRepo.findById(id);
+      const tournament = await tournamentsRepo.findById(id);
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -1899,7 +1904,7 @@ function registerApi(app, io) {
       emitTournamentUpdate('match-resolved', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
@@ -1907,7 +1912,7 @@ function registerApi(app, io) {
   app.patch('/api/tournaments/:id/matches/:matchId/reopen', authMiddleware, matchActionLimiter, validateRequest({ params: matchIdParamsSchema, body: matchReopenBodySchema }), async (req, res) => {
     try {
       const { id, matchId } = req.validated.params;
-      const tournament = tournamentsRepo.findById(id);
+      const tournament = await tournamentsRepo.findById(id);
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -1976,7 +1981,7 @@ function registerApi(app, io) {
       emitTournamentUpdate('match-reopened', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
@@ -1984,7 +1989,7 @@ function registerApi(app, io) {
   app.patch('/api/tournaments/:id/rounds/:roundId/start', authMiddleware, matchActionLimiter, validateRequest({ params: roundIdParamsSchema }), async (req, res) => {
     try {
       const { id, roundId } = req.validated.params;
-      const tournament = tournamentsRepo.findById(id);
+      const tournament = await tournamentsRepo.findById(id);
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -2029,7 +2034,7 @@ function registerApi(app, io) {
       emitTournamentUpdate('round-started', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
@@ -2037,7 +2042,7 @@ function registerApi(app, io) {
   app.patch('/api/tournaments/:id/rounds/:roundId/lock', authMiddleware, matchActionLimiter, validateRequest({ params: roundIdParamsSchema }), async (req, res) => {
     try {
       const { id, roundId } = req.validated.params;
-      const tournament = tournamentsRepo.findById(id);
+      const tournament = await tournamentsRepo.findById(id);
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -2071,7 +2076,7 @@ function registerApi(app, io) {
       emitTournamentUpdate('round-locked', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
@@ -2079,7 +2084,7 @@ function registerApi(app, io) {
   app.post('/api/tournaments/:id/rounds/next', authMiddleware, matchActionLimiter, validateRequest({ params: tournamentIdParamsSchema }), async (req, res) => {
     try {
       const { id } = req.validated.params;
-      const tournament = tournamentsRepo.findById(id);
+      const tournament = await tournamentsRepo.findById(id);
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -2143,7 +2148,7 @@ function registerApi(app, io) {
       emitTournamentUpdate('round-generated', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
@@ -2151,7 +2156,7 @@ function registerApi(app, io) {
   app.patch('/api/tournaments/:id/complete', authMiddleware, matchActionLimiter, validateRequest({ params: tournamentIdParamsSchema }), async (req, res) => {
     try {
       const { id } = req.validated.params;
-      const tournament = tournamentsRepo.findById(id);
+      const tournament = await tournamentsRepo.findById(id);
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
@@ -2206,7 +2211,7 @@ function registerApi(app, io) {
       emitTournamentUpdate('completed', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
@@ -2214,7 +2219,7 @@ function registerApi(app, io) {
   app.post('/api/tournaments/:id/checkin', authMiddleware, writeLimiter, validateRequest({ params: tournamentIdParamsSchema }), async (req, res) => {
     try {
       const { id } = req.validated.params;
-      const tournament = tournamentsRepo.findById(id);
+      const tournament = await tournamentsRepo.findById(id);
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
       const hasJoined = tournament.players.some((p) => toIdString(p) === req.user.id);
@@ -2241,7 +2246,7 @@ function registerApi(app, io) {
       emitTournamentUpdate('player-checkedin', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 
@@ -2249,7 +2254,7 @@ function registerApi(app, io) {
   app.post('/api/tournaments/:id/start-top-cut', authMiddleware, matchActionLimiter, validateRequest({ params: tournamentIdParamsSchema }), async (req, res) => {
     try {
       const { id } = req.validated.params;
-      const tournament = tournamentsRepo.findById(id);
+      const tournament = await tournamentsRepo.findById(id);
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
       if (toIdString(tournament.createdBy) !== req.user.id) {
@@ -2337,7 +2342,7 @@ function registerApi(app, io) {
       emitTournamentUpdate('top-cut-started', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
-      res.status(500).json({ error: 'Server error' });
+      sendServerError(res, error);
     }
   });
 

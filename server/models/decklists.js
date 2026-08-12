@@ -1,14 +1,26 @@
 /*
- * Decklist repository backed by SQLite (replaces the Mongoose Decklist model).
+ * Decklist repository backed by DynamoDB (theduelclub-Decklists table).
+ *
+ * `owner-index` GSI (owner, updatedAt) backs findByOwner. `public-feed-index`
+ * is a sparse GSI: the `publicFeedKey` attribute (a constant literal) is only
+ * written on items where isPublic is true, and simply omitted otherwise (a
+ * DynamoDB PutItem replaces the whole item, so leaving an attribute out is
+ * enough to "unset" it) -- that keeps the index scoped to just public
+ * decklists so findRecentPublic stays a cheap Query instead of a Scan.
  */
-const { getDb } = require('../db');
+const { GetCommand, PutCommand, DeleteCommand, QueryCommand } = require('@aws-sdk/lib-dynamodb');
+const { getClient } = require('../dynamo');
+const { TABLE_NAMES } = require('../dynamo-schema');
 const { generateId } = require('./id');
+
+const TABLE = TABLE_NAMES.DECKLISTS_TABLE;
+const PUBLIC_FEED_KEY = 'PUBLIC';
 
 function attachSave(decklist) {
   Object.defineProperty(decklist, 'save', {
     value: async function save() {
       this.updatedAt = new Date();
-      persist(this);
+      await persist(this);
       return this;
     },
     enumerable: false
@@ -16,49 +28,50 @@ function attachSave(decklist) {
   return decklist;
 }
 
-function rowToDecklist(row) {
-  if (!row) return null;
+function itemToDecklist(item) {
+  if (!item) return null;
   return attachSave({
-    _id: row.id,
-    owner: row.owner_id,
-    name: row.name,
-    game: row.game,
-    mainDeck: row.main_deck,
-    extraDeck: row.extra_deck,
-    sideDeck: row.side_deck,
-    isPublic: !!row.is_public,
-    archetype: row.archetype,
-    notes: row.notes,
-    createdAt: new Date(row.created_at),
-    updatedAt: new Date(row.updated_at)
+    _id: item.id,
+    owner: item.owner,
+    name: item.name,
+    game: item.game,
+    mainDeck: item.mainDeck,
+    extraDeck: item.extraDeck,
+    sideDeck: item.sideDeck,
+    isPublic: !!item.isPublic,
+    archetype: item.archetype,
+    notes: item.notes,
+    createdAt: new Date(item.createdAt),
+    updatedAt: new Date(item.updatedAt)
   });
 }
 
-function persist(decklist) {
-  const stmt = getDb().prepare(`
-    INSERT OR REPLACE INTO decklists (
-      id, owner_id, name, game, main_deck, extra_deck, side_deck,
-      is_public, archetype, notes, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  stmt.run(
-    decklist._id,
-    decklist.owner,
-    decklist.name,
-    decklist.game,
-    decklist.mainDeck,
-    decklist.extraDeck || '',
-    decklist.sideDeck || '',
-    decklist.isPublic ? 1 : 0,
-    decklist.archetype || '',
-    decklist.notes || '',
-    decklist.createdAt instanceof Date ? decklist.createdAt.toISOString() : decklist.createdAt,
-    decklist.updatedAt instanceof Date ? decklist.updatedAt.toISOString() : decklist.updatedAt
-  );
+function toItem(decklist) {
+  const item = {
+    id: decklist._id,
+    owner: decklist.owner,
+    name: decklist.name,
+    game: decklist.game,
+    mainDeck: decklist.mainDeck,
+    extraDeck: decklist.extraDeck || '',
+    sideDeck: decklist.sideDeck || '',
+    isPublic: !!decklist.isPublic,
+    archetype: decklist.archetype || '',
+    notes: decklist.notes || '',
+    createdAt: decklist.createdAt instanceof Date ? decklist.createdAt.toISOString() : decklist.createdAt,
+    updatedAt: decklist.updatedAt instanceof Date ? decklist.updatedAt.toISOString() : decklist.updatedAt
+  };
+  if (item.isPublic) {
+    item.publicFeedKey = PUBLIC_FEED_KEY;
+  }
+  return item;
 }
 
-function create({ owner, name, game, mainDeck, extraDeck, sideDeck, isPublic, archetype, notes }) {
+async function persist(decklist) {
+  await getClient().send(new PutCommand({ TableName: TABLE, Item: toItem(decklist) }));
+}
+
+async function create({ owner, name, game, mainDeck, extraDeck, sideDeck, isPublic, archetype, notes }) {
   const now = new Date();
   const decklist = attachSave({
     _id: generateId(),
@@ -74,39 +87,49 @@ function create({ owner, name, game, mainDeck, extraDeck, sideDeck, isPublic, ar
     createdAt: now,
     updatedAt: now
   });
-  persist(decklist);
+  await persist(decklist);
   return decklist;
 }
 
-function findById(id) {
-  const row = getDb().prepare('SELECT * FROM decklists WHERE id = ?').get(id);
-  return rowToDecklist(row);
+async function findById(id) {
+  if (!id) return null;
+  const { Item } = await getClient().send(new GetCommand({ TableName: TABLE, Key: { id } }));
+  return itemToDecklist(Item);
 }
 
 // Mirrors Decklist.findOne({ _id: id, owner: ownerId }) -- used to enforce ownership on writes.
-function findByIdForOwner(id, ownerId) {
-  const row = getDb().prepare('SELECT * FROM decklists WHERE id = ? AND owner_id = ?').get(id, ownerId);
-  return rowToDecklist(row);
+async function findByIdForOwner(id, ownerId) {
+  const decklist = await findById(id);
+  return decklist && decklist.owner === ownerId ? decklist : null;
 }
 
-function findByOwner(ownerId) {
-  const rows = getDb()
-    .prepare('SELECT * FROM decklists WHERE owner_id = ? ORDER BY updated_at DESC, created_at DESC')
-    .all(ownerId);
-  return rows.map(rowToDecklist);
+async function findByOwner(ownerId) {
+  const { Items } = await getClient().send(new QueryCommand({
+    TableName: TABLE,
+    IndexName: 'owner-index',
+    KeyConditionExpression: 'owner = :owner',
+    ExpressionAttributeValues: { ':owner': ownerId },
+    ScanIndexForward: false
+  }));
+  return (Items || []).map(itemToDecklist);
 }
 
-function findRecentPublic(limit = 10) {
-  const rows = getDb()
-    .prepare('SELECT * FROM decklists WHERE is_public = 1 ORDER BY created_at DESC LIMIT ?')
-    .all(limit);
-  return rows.map(rowToDecklist);
+async function findRecentPublic(limit = 10) {
+  const { Items } = await getClient().send(new QueryCommand({
+    TableName: TABLE,
+    IndexName: 'public-feed-index',
+    KeyConditionExpression: 'publicFeedKey = :key',
+    ExpressionAttributeValues: { ':key': PUBLIC_FEED_KEY },
+    ScanIndexForward: false,
+    Limit: limit
+  }));
+  return (Items || []).map(itemToDecklist);
 }
 
-function deleteByIdForOwner(id, ownerId) {
-  const decklist = findByIdForOwner(id, ownerId);
+async function deleteByIdForOwner(id, ownerId) {
+  const decklist = await findByIdForOwner(id, ownerId);
   if (!decklist) return null;
-  getDb().prepare('DELETE FROM decklists WHERE id = ? AND owner_id = ?').run(id, ownerId);
+  await getClient().send(new DeleteCommand({ TableName: TABLE, Key: { id } }));
   return decklist;
 }
 

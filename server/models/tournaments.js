@@ -1,109 +1,166 @@
 /*
- * Tournament repository backed by SQLite (replaces the Mongoose Tournament model).
+ * Tournament repository backed by DynamoDB (theduelclub-Tournaments table).
  *
- * Indexed top-level columns (created_by, status, ...) support list/filter
- * queries. The nested rounds/matches/registrations tree -- which every route
- * handler already loads whole, mutates in memory, and saves back whole --
- * is stored as a single JSON column instead of being normalized into child
- * tables, since there is no per-row concurrent-update pattern here.
+ * players/registrations/rounds/checkedInPlayers/topCutPlayers are native
+ * DynamoDB List/Map attributes instead of a serialized JSON column -- the
+ * DocumentClient marshals nested JS objects/arrays directly, so there's no
+ * more JSON.parse/JSON.stringify step.
  *
  * `findById` returns the raw (unpopulated) tournament, matching the old
  * `Tournament.findById(id)` calls used for mutation. `findByIdHydrated`
  * replaces every embedded user/decklist id reference with the looked-up
  * object, matching the old `.populate(tournamentPopulate)` behavior --
  * used only to build response payloads, never for mutation.
+ *
+ * Optimistic locking: unlike SQLite's WAL mode (which incidentally
+ * serialized every writer), concurrent DynamoDB writers can silently clobber
+ * each other. Every item carries a `version` counter; `.save()` requires the
+ * version read at findById() time to still match, or throws
+ * TournamentVersionConflictError (caught centrally in api-server.js as an
+ * HTTP 409) instead of losing one side's update.
  */
-const { getDb } = require('../db');
+const {
+  GetCommand,
+  PutCommand,
+  DeleteCommand,
+  QueryCommand,
+  ScanCommand
+} = require('@aws-sdk/lib-dynamodb');
+const { getClient } = require('../dynamo');
+const { TABLE_NAMES } = require('../dynamo-schema');
 const { generateId } = require('./id');
 const usersRepo = require('./users');
 const decklistsRepo = require('./decklists');
 
-function attachSave(tournament) {
+const TABLE = TABLE_NAMES.TOURNAMENTS_TABLE;
+
+class TournamentVersionConflictError extends Error {
+  constructor() {
+    super('This tournament was updated by someone else. Please refresh and retry.');
+    this.name = 'TournamentVersionConflictError';
+  }
+}
+
+// `_version` is attached non-enumerable (like `save`) so it never leaks into
+// API responses that spread a tournament object (listSummaries, hydrate()).
+function attachSave(tournament, version = 0) {
   Object.defineProperty(tournament, 'save', {
     value: async function save() {
-      persist(this);
+      await persist(this);
       return this;
     },
+    enumerable: false
+  });
+  Object.defineProperty(tournament, '_version', {
+    value: version,
+    writable: true,
     enumerable: false
   });
   return tournament;
 }
 
-function rowToTournament(row) {
-  if (!row) return null;
-  const data = JSON.parse(row.data || '{}');
+function itemToTournament(item) {
+  if (!item) return null;
 
   return attachSave({
-    _id: row.id,
-    name: row.name,
-    game: row.game,
-    format: row.format,
-    maxPlayers: row.max_players,
-    currentPlayers: row.current_players,
-    players: data.players || [],
-    registrations: data.registrations || [],
-    description: row.description || '',
-    createdBy: row.created_by,
-    createdAt: new Date(row.created_at),
-    status: row.status,
-    champion: row.champion || null,
-    startedAt: row.started_at ? new Date(row.started_at) : undefined,
-    completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
-    rounds: data.rounds || [],
-    roundTimerMinutes: row.round_timer_minutes,
-    checkedInPlayers: data.checkedInPlayers || [],
-    topCutSize: row.top_cut_size,
-    isTopCutPhase: !!row.is_top_cut_phase,
-    topCutPlayers: data.topCutPlayers || [],
-    topCutStartRound: row.top_cut_start_round
-  });
+    _id: item.id,
+    name: item.name,
+    game: item.game,
+    format: item.format,
+    maxPlayers: item.maxPlayers,
+    currentPlayers: item.currentPlayers,
+    players: item.players || [],
+    registrations: item.registrations || [],
+    description: item.description || '',
+    createdBy: item.createdBy,
+    createdAt: new Date(item.createdAt),
+    status: item.status,
+    champion: item.champion || null,
+    startedAt: item.startedAt ? new Date(item.startedAt) : undefined,
+    completedAt: item.completedAt ? new Date(item.completedAt) : undefined,
+    rounds: item.rounds || [],
+    roundTimerMinutes: item.roundTimerMinutes,
+    checkedInPlayers: item.checkedInPlayers || [],
+    topCutSize: item.topCutSize,
+    isTopCutPhase: !!item.isTopCutPhase,
+    topCutPlayers: item.topCutPlayers || [],
+    topCutStartRound: item.topCutStartRound
+  }, item.version || 0);
 }
 
-function persist(tournament) {
-  const data = JSON.stringify({
-    players: tournament.players || [],
-    registrations: tournament.registrations || [],
-    rounds: tournament.rounds || [],
-    checkedInPlayers: tournament.checkedInPlayers || [],
-    topCutPlayers: tournament.topCutPlayers || []
-  });
-
-  const stmt = getDb().prepare(`
-    INSERT OR REPLACE INTO tournaments (
-      id, name, game, format, max_players, current_players, description,
-      created_by, status, champion, created_at, started_at, completed_at,
-      round_timer_minutes, top_cut_size, is_top_cut_phase, top_cut_start_round, data
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
+function toItem(tournament) {
   const toIso = (value) => {
     if (!value) return null;
     return value instanceof Date ? value.toISOString() : value;
   };
 
-  stmt.run(
-    tournament._id,
-    tournament.name,
-    tournament.game,
-    tournament.format,
-    tournament.maxPlayers,
-    tournament.currentPlayers || 0,
-    tournament.description || '',
-    tournament.createdBy,
-    tournament.status,
-    tournament.champion || null,
-    toIso(tournament.createdAt) || new Date().toISOString(),
-    toIso(tournament.startedAt),
-    toIso(tournament.completedAt),
-    tournament.roundTimerMinutes || 0,
-    tournament.topCutSize || 0,
-    tournament.isTopCutPhase ? 1 : 0,
-    tournament.topCutStartRound || null,
-    data
-  );
+  // The DynamoDB DocumentClient can't marshal raw Date instances nested
+  // inside these arrays (e.g. a match's reportedAt, a registration's
+  // submittedAt), only top-level scalar attributes. A JSON round-trip
+  // flattens every nested Date to an ISO string in one pass -- the exact
+  // same thing JSON.stringify-ing the old SQLite `data` blob column used to
+  // do, so nested date fields keep behaving as strings-after-persistence,
+  // same as before this migration.
+  const flatten = (value) => JSON.parse(JSON.stringify(value));
+
+  return {
+    id: tournament._id,
+    name: tournament.name,
+    game: tournament.game,
+    format: tournament.format,
+    maxPlayers: tournament.maxPlayers,
+    currentPlayers: tournament.currentPlayers || 0,
+    players: flatten(tournament.players || []),
+    registrations: flatten(tournament.registrations || []),
+    description: tournament.description || '',
+    createdBy: tournament.createdBy,
+    createdAt: toIso(tournament.createdAt) || new Date().toISOString(),
+    status: tournament.status,
+    champion: tournament.champion || null,
+    startedAt: toIso(tournament.startedAt),
+    completedAt: toIso(tournament.completedAt),
+    rounds: flatten(tournament.rounds || []),
+    roundTimerMinutes: tournament.roundTimerMinutes || 0,
+    checkedInPlayers: flatten(tournament.checkedInPlayers || []),
+    topCutSize: tournament.topCutSize || 0,
+    isTopCutPhase: !!tournament.isTopCutPhase,
+    topCutPlayers: flatten(tournament.topCutPlayers || []),
+    topCutStartRound: tournament.topCutStartRound || null,
+    version: (tournament._version || 0) + 1
+  };
 }
 
-function create({ name, game, format, maxPlayers, description, roundTimerMinutes, topCutSize, createdBy }) {
+async function persist(tournament) {
+  const expectedVersion = tournament._version || 0;
+  const item = toItem(tournament);
+
+  try {
+    if (expectedVersion === 0) {
+      // First save of a brand-new tournament -- nothing to race against yet.
+      await getClient().send(new PutCommand({
+        TableName: TABLE,
+        Item: item,
+        ConditionExpression: 'attribute_not_exists(id)'
+      }));
+    } else {
+      await getClient().send(new PutCommand({
+        TableName: TABLE,
+        Item: item,
+        ConditionExpression: 'version = :expected',
+        ExpressionAttributeValues: { ':expected': expectedVersion }
+      }));
+    }
+  } catch (error) {
+    if (error.name === 'ConditionalCheckFailedException') {
+      throw new TournamentVersionConflictError();
+    }
+    throw error;
+  }
+
+  tournament._version = item.version;
+}
+
+async function create({ name, game, format, maxPlayers, description, roundTimerMinutes, topCutSize, createdBy }) {
   const tournament = attachSave({
     _id: generateId(),
     name,
@@ -128,56 +185,80 @@ function create({ name, game, format, maxPlayers, description, roundTimerMinutes
     topCutPlayers: [],
     topCutStartRound: null
   });
-  persist(tournament);
+  await persist(tournament);
   return tournament;
 }
 
-function findById(id) {
-  const row = getDb().prepare('SELECT * FROM tournaments WHERE id = ?').get(id);
-  return rowToTournament(row);
+async function findById(id) {
+  if (!id) return null;
+  const { Item } = await getClient().send(new GetCommand({ TableName: TABLE, Key: { id } }));
+  return itemToTournament(Item);
 }
 
-function deleteById(id) {
-  const tournament = findById(id);
+async function deleteById(id) {
+  const tournament = await findById(id);
   if (!tournament) return null;
-  getDb().prepare('DELETE FROM tournaments WHERE id = ?').run(id);
+  await getClient().send(new DeleteCommand({ TableName: TABLE, Key: { id } }));
   return tournament;
 }
 
 // Used for the public tournament list -- mirrors `.select('-rounds').populate('createdBy',
 // 'username').populate('players','username')`.
-function listSummaries() {
-  const rows = getDb().prepare('SELECT * FROM tournaments ORDER BY created_at DESC').all();
-  return rows.map(rowToTournament).map(({ rounds, createdBy, players, ...rest }) => ({
+async function listSummaries() {
+  const { Items } = await getClient().send(new ScanCommand({ TableName: TABLE }));
+  const tournaments = (Items || []).map(itemToTournament)
+    .sort((a, b) => b.createdAt - a.createdAt);
+
+  return Promise.all(tournaments.map(async ({ rounds, createdBy, players, ...rest }) => ({
     ...rest,
-    createdBy: userSummaryShape(usersRepo.findById(createdBy)),
-    players: (players || []).map((id) => userSummaryShape(usersRepo.findById(id)))
+    createdBy: userSummaryShape(await usersRepo.findById(createdBy)),
+    players: await Promise.all((players || []).map(async (id) => userSummaryShape(await usersRepo.findById(id))))
+  })));
+}
+
+async function listByCreator(creatorId, { limit } = {}) {
+  const { Items } = await getClient().send(new QueryCommand({
+    TableName: TABLE,
+    IndexName: 'creator-index',
+    KeyConditionExpression: 'createdBy = :creatorId',
+    ExpressionAttributeValues: { ':creatorId': creatorId },
+    ScanIndexForward: false,
+    ...(limit ? { Limit: limit } : {})
   }));
+  return (Items || []).map(itemToTournament);
 }
 
-function listByCreator(creatorId, { limit } = {}) {
-  const rows = getDb()
-    .prepare(`SELECT * FROM tournaments WHERE created_by = ? ORDER BY created_at DESC${limit ? ' LIMIT ?' : ''}`)
-    .all(...(limit ? [creatorId, limit] : [creatorId]));
-  return rows.map(rowToTournament);
-}
-
-function listByPlayer(playerId, { limit } = {}) {
-  const rows = getDb().prepare('SELECT * FROM tournaments').all();
-  const matching = rows
-    .map(rowToTournament)
-    .filter((t) => t.players.includes(playerId))
+// No index exists for "tournaments a player has joined" (the old SQLite
+// version was also an unindexed full-table scan filtered in JS) -- at hobby-
+// app volume (well under a thousand tournaments ever) a Scan with a trimmed
+// projection is simpler than adding an inverted membership index, and is no
+// worse than the behavior this replaces.
+async function listByPlayer(playerId, { limit } = {}) {
+  const { Items } = await getClient().send(new ScanCommand({
+    TableName: TABLE,
+    FilterExpression: 'contains(players, :playerId)',
+    ExpressionAttributeValues: { ':playerId': playerId }
+  }));
+  const matching = (Items || [])
+    .map(itemToTournament)
     .sort((a, b) => b.createdAt - a.createdAt);
   return limit ? matching.slice(0, limit) : matching;
 }
 
-function countByCreator(creatorId) {
-  const row = getDb().prepare('SELECT COUNT(*) AS count FROM tournaments WHERE created_by = ?').get(creatorId);
-  return row.count;
+async function countByCreator(creatorId) {
+  const { Count } = await getClient().send(new QueryCommand({
+    TableName: TABLE,
+    IndexName: 'creator-index',
+    KeyConditionExpression: 'createdBy = :creatorId',
+    ExpressionAttributeValues: { ':creatorId': creatorId },
+    Select: 'COUNT'
+  }));
+  return Count || 0;
 }
 
-function countByPlayer(playerId) {
-  return listByPlayer(playerId).length;
+async function countByPlayer(playerId) {
+  const tournaments = await listByPlayer(playerId);
+  return tournaments.length;
 }
 
 // --- Population (replaces Mongoose's .populate(tournamentPopulate)) ---
@@ -236,18 +317,18 @@ function collectReferencedIds(tournament) {
   return { userIds: Array.from(userIds), decklistIds: Array.from(decklistIds) };
 }
 
-function buildLookupMaps(userIds, decklistIds) {
+async function buildLookupMaps(userIds, decklistIds) {
   const userMap = new Map();
-  userIds.forEach((id) => {
-    const user = usersRepo.findById(id);
+  await Promise.all(userIds.map(async (id) => {
+    const user = await usersRepo.findById(id);
     if (user) userMap.set(id, userPublicShape(user));
-  });
+  }));
 
   const decklistMap = new Map();
-  decklistIds.forEach((id) => {
-    const decklist = decklistsRepo.findById(id);
+  await Promise.all(decklistIds.map(async (id) => {
+    const decklist = await decklistsRepo.findById(id);
     if (decklist) decklistMap.set(id, decklistPublicShape(decklist));
-  });
+  }));
 
   return { userMap, decklistMap };
 }
@@ -291,11 +372,11 @@ function hydrate(tournament, { userMap, decklistMap }) {
   };
 }
 
-function findByIdHydrated(id) {
-  const tournament = findById(id);
+async function findByIdHydrated(id) {
+  const tournament = await findById(id);
   if (!tournament) return null;
   const { userIds, decklistIds } = collectReferencedIds(tournament);
-  const maps = buildLookupMaps(userIds, decklistIds);
+  const maps = await buildLookupMaps(userIds, decklistIds);
   return hydrate(tournament, maps);
 }
 
@@ -308,5 +389,6 @@ module.exports = {
   listByCreator,
   listByPlayer,
   countByCreator,
-  countByPlayer
+  countByPlayer,
+  TournamentVersionConflictError
 };
