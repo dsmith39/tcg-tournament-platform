@@ -1913,7 +1913,8 @@ function getPathForSection(sectionId) {
         'user-profile': currentUser ? '/dashboard' : '/',
         'card-lookup': '/tools/card-lookup',
         'meta-tracker': '/tools/meta-tracker',
-        'lp-calc': '/tools/lp-calculator'
+        'lp-calc': '/tools/lp-calculator',
+        admin: '/admin'
     };
 
     return map[sectionId] || '/';
@@ -1935,6 +1936,7 @@ function getRouteFromLocation() {
     if (pathname === '/tools/card-lookup') return { type: 'card-lookup' };
     if (pathname === '/tools/meta-tracker') return { type: 'meta-tracker' };
     if (pathname === '/tools/lp-calculator') return { type: 'lp-calc' };
+    if (pathname === '/admin') return { type: 'admin' };
 
     const tournamentMatch = pathname.match(/^\/tournaments\/([^/]+)$/);
     if (tournamentMatch) return { type: 'tournament-detail', id: decodeURIComponent(tournamentMatch[1]) };
@@ -1991,6 +1993,15 @@ async function renderRouteFromLocation(options = {}) {
 
     if (route.type === 'card-lookup' || route.type === 'meta-tracker' || route.type === 'lp-calc') {
         switchSection(route.type, { updateUrl: false, skipAuthPrompt: true });
+        return;
+    }
+
+    if (route.type === 'admin') {
+        if (!currentUser) {
+            goToAuth('login', { replaceHistory: true });
+            return;
+        }
+        switchSection('admin', { updateUrl: false, skipAuthPrompt: true });
         return;
     }
 
@@ -2056,6 +2067,10 @@ function activateSection(sectionId, trackHistory = true) {
         renderLpDisplay();
         renderLpScores();
     }
+
+    if (sectionId === 'admin') {
+        switchAdminTab('overview');
+    }
 }
 
 function goBack() {
@@ -2103,9 +2118,237 @@ function applyAuthenticatedNavState() {
     document.getElementById('user-info').style.display = 'block';
     document.getElementById('user-info').textContent = `👤 ${currentUser.username}`;
 
+    const adminBtn = document.getElementById('admin-btn');
+    if (adminBtn) {
+        adminBtn.style.display = currentUser.isAdmin ? 'block' : 'none';
+    }
+
     const createUserLinkEl = document.getElementById('create-user-link');
     if (createUserLinkEl) {
         createUserLinkEl.textContent = currentUser.username;
+    }
+}
+
+// --- Admin panel ---
+//
+// Only reachable/visible when currentUser.isAdmin is true (set by
+// applyAuthenticatedNavState() from GET /api/auth/me), but every /api/admin/*
+// call is independently gated server-side by requireAdmin -- hiding the tab
+// is a UX nicety, not the security boundary.
+
+function switchAdminTab(tab) {
+    document.querySelectorAll('.admin-tab-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.adminTab === tab);
+    });
+    document.querySelectorAll('.admin-tab-panel').forEach((panel) => {
+        panel.style.display = panel.id === `admin-tab-${tab}` ? 'block' : 'none';
+    });
+
+    if (tab === 'overview') loadAdminStats();
+    if (tab === 'tournaments') renderAdminTournaments();
+    if (tab === 'disputes') loadAdminDisputes();
+}
+
+async function loadAdminStats() {
+    const container = document.getElementById('admin-stats');
+    if (!container) return;
+    container.innerHTML = '<div class="empty-state">Loading stats...</div>';
+
+    try {
+        const response = await fetch(`${API_URL}/admin/stats`, { suppressLoading: true });
+        const stats = await response.json();
+
+        if (!response.ok) {
+            container.innerHTML = `<div class="empty-state">${escapeHtml(stats.error || 'Unable to load stats.')}</div>`;
+            return;
+        }
+
+        const statusCards = Object.entries(stats.tournamentsByStatus || {}).map(([status, count]) => `
+            <div class="meta-stat-card"><div class="stat-val">${count}</div><div class="stat-label">${escapeHtml(status)}</div></div>
+        `).join('');
+
+        container.innerHTML = `
+            <div class="meta-stat-card"><div class="stat-val">${stats.totalUsers}</div><div class="stat-label">Total Users</div></div>
+            <div class="meta-stat-card"><div class="stat-val stat-win">${stats.signups7d}</div><div class="stat-label">Signups (7d)</div></div>
+            <div class="meta-stat-card"><div class="stat-val stat-win">${stats.signups30d}</div><div class="stat-label">Signups (30d)</div></div>
+            <div class="meta-stat-card"><div class="stat-val">${stats.totalTournaments}</div><div class="stat-label">Tournaments</div></div>
+            <div class="meta-stat-card"><div class="stat-val ${stats.disputedMatchCount > 0 ? 'stat-loss' : ''}">${stats.disputedMatchCount}</div><div class="stat-label">Open Disputes</div></div>
+            ${statusCards}
+        `;
+    } catch (error) {
+        container.innerHTML = '<div class="empty-state">Unable to load stats right now.</div>';
+    }
+}
+
+async function renderAdminTournaments() {
+    const tbody = document.getElementById('admin-tournaments-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="9">Loading tournaments...</td></tr>';
+
+    const search = document.getElementById('admin-tournament-search')?.value.trim() || '';
+    const status = document.getElementById('admin-tournament-status-filter')?.value || '';
+    const game = document.getElementById('admin-tournament-game-filter')?.value || '';
+
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (status) params.set('status', status);
+    if (game) params.set('game', game);
+
+    try {
+        const response = await fetch(`${API_URL}/admin/tournaments?${params.toString()}`, { suppressLoading: true });
+        const tournaments = await response.json();
+
+        if (!response.ok) {
+            tbody.innerHTML = `<tr><td colspan="9">${escapeHtml(tournaments.error || 'Unable to load tournaments.')}</td></tr>`;
+            return;
+        }
+
+        if (!tournaments.length) {
+            tbody.innerHTML = '<tr><td colspan="9">No tournaments match.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = tournaments.map((t) => {
+            const statusOptions = ['registration', 'active', 'completed']
+                .map((s) => `<option value="${s}" ${s === t.status ? 'selected' : ''}>${s}</option>`)
+                .join('');
+
+            return `
+                <tr>
+                    <td>${escapeHtml(t.name)}</td>
+                    <td>${escapeHtml(t.game)}</td>
+                    <td>${escapeHtml(t.format)}</td>
+                    <td><span class="status-badge status-${t.status}">${escapeHtml(t.status)}</span></td>
+                    <td>${t.currentPlayers}/${t.maxPlayers}</td>
+                    <td>${createUserLink(t.createdBy)}</td>
+                    <td>${t.disputedMatchCount > 0 ? `<span class="stat-loss" style="font-weight:700;">${t.disputedMatchCount}</span>` : '0'}</td>
+                    <td>${new Date(t.createdAt).toLocaleDateString()}</td>
+                    <td style="white-space:nowrap;">
+                        <button class="btn secondary" style="margin:0 0.25rem 0.25rem 0; padding:0.3rem 0.5rem; font-size:0.8rem;" onclick="viewTournament('${t._id}')">View</button>
+                        <select style="margin:0 0.25rem 0.25rem 0; padding:0.25rem;" onchange="adminOverrideTournamentStatus('${t._id}', this.value)">
+                            <option value="">Force status…</option>
+                            ${statusOptions}
+                        </select>
+                        <button class="btn secondary" style="margin:0 0.25rem 0.25rem 0; padding:0.3rem 0.5rem; font-size:0.8rem;" onclick="adminReassignOrganizer('${t._id}')">Reassign</button>
+                        <button class="btn danger" style="margin:0; padding:0.3rem 0.5rem; font-size:0.8rem;" onclick="adminDeleteTournament('${t._id}')">Delete</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (error) {
+        tbody.innerHTML = '<tr><td colspan="9">Unable to load tournaments right now.</td></tr>';
+    }
+}
+
+async function adminOverrideTournamentStatus(id, status) {
+    if (!status) return;
+    if (!confirm(`Force this tournament's status to "${status}"? This bypasses the normal start/complete checks.`)) {
+        renderAdminTournaments();
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_URL}/admin/tournaments/${id}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status })
+        });
+        const data = await response.json();
+
+        if (response.ok) {
+            loadAdminStats();
+            refreshTournamentDetailIfOpen(id);
+        } else {
+            alert(data.error || 'Failed to update tournament status');
+        }
+    } catch (error) {
+        alert('Network error');
+    } finally {
+        renderAdminTournaments();
+    }
+}
+
+async function adminReassignOrganizer(id) {
+    const organizerId = prompt("Reassign this tournament to a different organizer.\nEnter the new organizer's user ID (visible in their profile URL, /users/<id>):");
+    if (!organizerId || !organizerId.trim()) return;
+
+    try {
+        const response = await fetch(`${API_URL}/admin/tournaments/${id}/organizer`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ organizerId: organizerId.trim() })
+        });
+        const data = await response.json();
+
+        if (response.ok) {
+            renderAdminTournaments();
+            refreshTournamentDetailIfOpen(id);
+        } else {
+            alert(data.error || 'Failed to reassign organizer');
+        }
+    } catch (error) {
+        alert('Network error');
+    }
+}
+
+async function adminDeleteTournament(id) {
+    if (!confirm('Delete this tournament? This cannot be undone.')) return;
+
+    try {
+        const response = await fetch(`${API_URL}/tournaments/${id}`, { method: 'DELETE' });
+        const data = await response.json();
+
+        if (response.ok) {
+            renderAdminTournaments();
+            loadAdminStats();
+        } else {
+            alert(data.error || 'Failed to delete tournament');
+        }
+    } catch (error) {
+        alert('Network error');
+    }
+}
+
+async function loadAdminDisputes() {
+    const container = document.getElementById('admin-disputes-list');
+    if (!container) return;
+    container.innerHTML = '<div class="empty-state">Loading disputes...</div>';
+
+    try {
+        const response = await fetch(`${API_URL}/admin/disputes`, { suppressLoading: true });
+        const disputes = await response.json();
+
+        if (!response.ok) {
+            container.innerHTML = `<div class="empty-state">${escapeHtml(disputes.error || 'Unable to load disputes.')}</div>`;
+            return;
+        }
+
+        if (!disputes.length) {
+            container.innerHTML = '<div class="empty-state">No open disputes. 🎉</div>';
+            return;
+        }
+
+        container.innerHTML = disputes.map((d) => `
+            <div class="tournament-item">
+                <div class="tournament-main">
+                    <div class="tournament-name-row">
+                        <div class="tournament-name">${escapeHtml(d.tournamentName)}</div>
+                        <span class="status-badge status-active">Round ${d.roundNumber}</span>
+                    </div>
+                    <div class="tournament-meta">
+                        <span>${d.player1 ? escapeHtml(d.player1.username) : 'Unknown'} vs ${d.player2 ? escapeHtml(d.player2.username) : 'Unknown'}</span>
+                        <span>Disputed by ${d.disputedBy ? escapeHtml(d.disputedBy.username) : 'Unknown'}</span>
+                        <span>${d.disputedAt ? new Date(d.disputedAt).toLocaleString() : ''}</span>
+                    </div>
+                    <div style="margin-top:0.4rem; font-size:0.85rem; color:var(--text-secondary);">${escapeHtml(d.disputeReason || 'No reason given')}</div>
+                </div>
+                <div class="tournament-actions">
+                    <button class="btn secondary" onclick="viewTournament('${d.tournamentId}')">Open Tournament</button>
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        container.innerHTML = '<div class="empty-state">Unable to load disputes right now.</div>';
     }
 }
 
@@ -2325,6 +2568,20 @@ function switchSection(sectionId, options = {}) {
         return;
     }
 
+    if (sectionId === 'admin') {
+        if (!currentUser) {
+            goToAuth('login', { replaceHistory: true });
+            return;
+        }
+        if (!currentUser.isAdmin) {
+            if (!skipAuthPrompt) {
+                alert('Admin access required.');
+            }
+            showDashboard();
+            return;
+        }
+    }
+
     activateSection(sectionId, true);
     if (updateUrl) {
         syncUrlToSection(sectionId, { replaceHistory });
@@ -2505,10 +2762,12 @@ function createTournamentListItem(tournament, publicView = false) {
     }[tournament.format] || tournament.format;
 
     const currentUserId = getCurrentUserId();
-    const isCreator = tournament.createdBy && isSameId(getEntityId(tournament.createdBy), currentUserId);
+    // Admins get organizer controls on every tournament, matching the server-side
+    // isOrganizer() bypass -- lets a site admin step in on any event, not just their own.
+    const isCreator = !!currentUser?.isAdmin || !!(tournament.createdBy && isSameId(getEntityId(tournament.createdBy), currentUserId));
     const hasJoined = tournament.players && tournament.players.some(p => isSameId(getEntityId(p), currentUserId));
     const isFull = (tournament.currentPlayers || 0) >= tournament.maxPlayers;
-    
+
     const statusClass = `status-${tournament.status || 'registration'}`;
     const statusLabel = {
         'registration': 'Open',
@@ -4069,7 +4328,9 @@ async function viewTournament(id, options = {}) {
         }[tournament.status] || 'Open for Registration';
 
         const currentUserId = getCurrentUserId();
-        const isCreator = tournament.createdBy && isSameId(getEntityId(tournament.createdBy), currentUserId);
+        // Admins get organizer controls on every tournament, matching the server-side
+        // isOrganizer() bypass -- lets a site admin step in on any event, not just their own.
+        const isCreator = !!currentUser?.isAdmin || !!(tournament.createdBy && isSameId(getEntityId(tournament.createdBy), currentUserId));
         const hasJoined = tournament.players && tournament.players.some(p => isSameId(getEntityId(p), currentUserId));
         const isFull = (tournament.currentPlayers || 0) >= tournament.maxPlayers;
 

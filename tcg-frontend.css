@@ -1134,6 +1134,19 @@ footer {
     margin: 1rem 0 1.5rem;
 }
 
+.admin-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin: 1rem 0 1.5rem;
+    flex-wrap: wrap;
+}
+
+.admin-tabs .admin-tab-btn.active {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+}
+
 .lp-mode-toggle .lp-mode-btn.active {
     background: var(--primary-color);
     color: #fff;

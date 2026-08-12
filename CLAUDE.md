@@ -152,6 +152,10 @@ Three policies from `server/security.js`:
 
 In tests, `NODE_ENV=test` enables rate limiting but the test suite calls `flushRateLimitStores()` in `beforeEach` to reset between tests.
 
+### Admin Panel
+
+Site-operator access is an email allowlist, not a stored role: `ADMIN_EMAILS` (comma-separated) is checked against the logged-in user's email in `authMiddleware`, which sets `req.user.isAdmin`. `GET /api/auth/me` returns `isAdmin` so the frontend can show/hide the `#admin` section; `requireAdmin` gates every `/api/admin/*` route server-side regardless of what the client shows. `isOrganizer(tournament, req)` lets an admin act as the organizer on *any* tournament — the existing resolve/reopen/start/lock/complete/delete routes all use it, so there's no separate admin copy of that logic. `/api/admin/*` adds what those per-owner routes can't: `stats` (site-wide counts), `tournaments` (cross-tournament list/filter, backed by `tournamentsRepo.listAllFull()`), `disputes` (every open dispute across every tournament, not just one TO's), and `tournaments/:id/status` + `tournaments/:id/organizer` (emergency status override / organizer reassignment when a TO goes unresponsive).
+
 ### Tournament Logic
 
 - **Swiss pairings:** avoids rematches, recommended rounds = `ceil(log2(playerCount))`
@@ -196,6 +200,7 @@ HOST=127.0.0.1                # Bind address
 JWT_SECRET=<strong-random-secret>  # generate with: node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 NODE_ENV=development          # Set to "test" in test scripts (also switches both DBs to :memory:)
 CARD_IMAGE_DIR=               # Optional override for card-database/src/api_router.js's image directory
+ADMIN_EMAILS=                 # Comma-separated allowlist granting access to the /admin panel
 ```
 
 **No database URL needed** — both SQLite databases are just files, created automatically on first run (`server/data/app.db`, `card-database/data/cards.db`).

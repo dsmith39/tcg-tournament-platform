@@ -24,7 +24,7 @@
  * call instead of a synchronous local read. Each returned object gets a
  * `.save()` bound to itself, same as before.
  */
-const { GetCommand, PutCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
+const { GetCommand, PutCommand, DeleteCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
 const { getClient } = require('../dynamo');
 const { TABLE_NAMES } = require('../dynamo-schema');
 const { generateId } = require('./id');
@@ -178,8 +178,22 @@ async function findByEmail(email) {
   return findById(lock.userId);
 }
 
+// Admin-only: every user profile, for the admin dashboard's counts/signup
+// trend. The scan also picks up USERNAME_LOCK/EMAIL_LOCK items sharing this
+// table, so itemToUser filters those out (it already returns null for any
+// itemType other than 'PROFILE'). Fine at this app's hobby-project volume --
+// same tradeoff tournaments.js's listByPlayer Scan already makes.
+async function listAll() {
+  const { Items } = await getClient().send(new ScanCommand({ TableName: TABLE }));
+  return (Items || [])
+    .map(itemToUser)
+    .filter(Boolean)
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
 module.exports = {
   buildUser,
   findById,
-  findByEmail
+  findByEmail,
+  listAll
 };
