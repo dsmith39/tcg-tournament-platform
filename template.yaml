@@ -1,0 +1,534 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  The Duel Club (theduelclub.com) -- Express app on Lambda (Web Adapter)
+  behind an API Gateway HTTP API, a separate WebSocket API for live
+  tournament/decklist updates, DynamoDB storage, and a static frontend +
+  card-image CDN on S3/CloudFront. Deployed as a single stack in us-east-1
+  so one ACM certificate covers both CloudFront (which requires us-east-1)
+  and the regional API Gateway custom domains.
+
+Parameters:
+  DomainName:
+    Type: String
+    Default: theduelclub.com
+  HostedZoneId:
+    Type: String
+    Default: Z0554619SVMTAJ70KJG3
+  JwtSecret:
+    Type: String
+    NoEcho: true
+
+Resources:
+  # ---------------------------------------------------------------------
+  # Certificate (covers apex, www, api, ws, cdn -- one cert since everything
+  # is deployed in us-east-1)
+  # ---------------------------------------------------------------------
+  SiteCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      SubjectAlternativeNames:
+        - !Sub "www.${DomainName}"
+        - !Sub "api.${DomainName}"
+        - !Sub "ws.${DomainName}"
+        - !Sub "cdn.${DomainName}"
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+        - DomainName: !Sub "www.${DomainName}"
+          HostedZoneId: !Ref HostedZoneId
+        - DomainName: !Sub "api.${DomainName}"
+          HostedZoneId: !Ref HostedZoneId
+        - DomainName: !Sub "ws.${DomainName}"
+          HostedZoneId: !Ref HostedZoneId
+        - DomainName: !Sub "cdn.${DomainName}"
+          HostedZoneId: !Ref HostedZoneId
+
+  # ---------------------------------------------------------------------
+  # Storage: frontend static assets + card images (S3), app data (DynamoDB)
+  # ---------------------------------------------------------------------
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "theduelclub-frontend-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  CardImagesBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "theduelclub-card-images-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: theduelclub-Users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+
+  DecklistsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: theduelclub-Decklists
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: owner
+          AttributeType: S
+        - AttributeName: updatedAt
+          AttributeType: S
+        - AttributeName: publicFeedKey
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: owner-index
+          KeySchema:
+            - AttributeName: owner
+              KeyType: HASH
+            - AttributeName: updatedAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: public-feed-index
+          KeySchema:
+            - AttributeName: publicFeedKey
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  TournamentsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: theduelclub-Tournaments
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: createdBy
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: creator-index
+          KeySchema:
+            - AttributeName: createdBy
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  ConnectionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: theduelclub-Connections
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: connectionId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connectionId
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ---------------------------------------------------------------------
+  # Frontend: S3 (private, OAC-fronted) + CloudFront (SPA routing via
+  # CustomErrorResponses since there's no server left to fall back to)
+  # ---------------------------------------------------------------------
+  FrontendOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-frontend-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${FrontendBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${FrontendDistribution}"
+
+  FrontendDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Aliases:
+          - !Ref DomainName
+          - !Sub "www.${DomainName}"
+        ViewerCertificate:
+          AcmCertificateArn: !Ref SiteCertificate
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        Origins:
+          - Id: FrontendOrigin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            OriginAccessControlId: !Ref FrontendOAC
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          TargetOriginId: FrontendOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          # AWS managed "CachingOptimized" policy.
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+        # This is a client-routed SPA -- any path CloudFront can't find as a
+        # literal S3 object (e.g. /decklists/abc123) falls back to index.html
+        # so tcg-frontend.js's own router can take over, mirroring what the
+        # old Express catch-all route did before the frontend was static.
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
+  # ---------------------------------------------------------------------
+  # Card image CDN: same OAC + static-origin pattern as the frontend, but
+  # its own distribution -- an immutable, cache-forever 4.6GB image set has
+  # nothing in common operationally with the frequently-invalidated SPA
+  # bundle, so keeping them on separate distributions avoids fussier
+  # per-path invalidation scoping for no benefit at this resource count.
+  # ---------------------------------------------------------------------
+  CdnOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-cdn-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  CardImagesBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CardImagesBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${CardImagesBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CdnDistribution}"
+
+  CdnDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Aliases:
+          - !Sub "cdn.${DomainName}"
+        ViewerCertificate:
+          AcmCertificateArn: !Ref SiteCertificate
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        Origins:
+          - Id: CdnOrigin
+            DomainName: !GetAtt CardImagesBucket.RegionalDomainName
+            OriginAccessControlId: !Ref CdnOAC
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          TargetOriginId: CdnOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+
+  # ---------------------------------------------------------------------
+  # Route53 records
+  # ---------------------------------------------------------------------
+  ApexDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt FrontendDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2 # CloudFront's fixed global alias-target zone id
+        EvaluateTargetHealth: false
+
+  WwwDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub "www.${DomainName}"
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt FrontendDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+        EvaluateTargetHealth: false
+
+  CdnDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub "cdn.${DomainName}"
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CdnDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+        EvaluateTargetHealth: false
+
+  # ---------------------------------------------------------------------
+  # HTTP API + main app Lambda (Lambda Web Adapter -- server.js/Express
+  # routing is unmodified, only the data/realtime layers changed to be
+  # Lambda-compatible)
+  # ---------------------------------------------------------------------
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Domain:
+        DomainName: !Sub "api.${DomainName}"
+        CertificateArn: !Ref SiteCertificate
+        Route53:
+          HostedZoneId: !Ref HostedZoneId
+
+  AppFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: theduelclub-app
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: run.sh
+      CodeUri: ./build/function.zip
+      MemorySize: 512
+      Timeout: 15
+      Layers:
+        - !Sub "arn:aws:lambda:${AWS::Region}:753240598075:layer:LambdaAdapterLayerArm64:28"
+      Environment:
+        Variables:
+          AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
+          PORT: "8080"
+          NODE_ENV: production
+          JWT_SECRET: !Ref JwtSecret
+          USERS_TABLE: !Ref UsersTable
+          DECKLISTS_TABLE: !Ref DecklistsTable
+          TOURNAMENTS_TABLE: !Ref TournamentsTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          REALTIME_TRANSPORT: apigw-ws
+          WS_API_ENDPOINT: !Sub "https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/production"
+          CARD_DB_READONLY: "true"
+          CARD_IMAGE_BASE_URL: !Sub "https://cdn.${DomainName}"
+          CORS_ALLOWED_ORIGINS: !Sub "https://${DomainName},https://www.${DomainName}"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DecklistsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TournamentsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConnectionsTable
+        - Statement:
+            - Effect: Allow
+              Action: execute-api:ManageConnections
+              Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*"
+      Events:
+        ApiRoot:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /
+            Method: ANY
+        ApiProxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+
+  # ---------------------------------------------------------------------
+  # WebSocket API -- no workspace precedent and no SAM shortcut exists for
+  # WebSocket APIs (unlike AWS::Serverless::HttpApi), so this is wired
+  # explicitly: a tiny standalone Lambda (server/ws-handler/) tracks
+  # connections in DynamoDB; server/realtime.js (running inside AppFunction)
+  # does the actual broadcasting by scanning that table and calling
+  # PostToConnection, not through this Lambda.
+  # ---------------------------------------------------------------------
+  WebSocketApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: theduelclub-ws
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: "$request.body.action"
+
+  WsHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: theduelclub-ws-handler
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.handler
+      CodeUri: ./server/ws-handler
+      MemorySize: 128
+      Timeout: 10
+      Environment:
+        Variables:
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConnectionsTable
+
+  WsIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WsHandlerFunction.Arn}/invocations"
+
+  WsConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: "$connect"
+      Target: !Sub "integrations/${WsIntegration}"
+
+  WsDisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: "$disconnect"
+      Target: !Sub "integrations/${WsIntegration}"
+
+  WsDefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: "$default"
+      Target: !Sub "integrations/${WsIntegration}"
+
+  WsStage:
+    Type: AWS::ApiGatewayV2::Stage
+    DependsOn:
+      - WsConnectRoute
+      - WsDisconnectRoute
+      - WsDefaultRoute
+    Properties:
+      ApiId: !Ref WebSocketApi
+      StageName: production
+      AutoDeploy: true
+
+  WsLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WsHandlerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*"
+
+  WsDomainName:
+    Type: AWS::ApiGatewayV2::DomainName
+    Properties:
+      DomainName: !Sub "ws.${DomainName}"
+      DomainNameConfigurations:
+        - CertificateArn: !Ref SiteCertificate
+          EndpointType: REGIONAL
+
+  WsApiMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Properties:
+      DomainName: !Ref WsDomainName
+      ApiId: !Ref WebSocketApi
+      Stage: production
+    DependsOn: WsStage
+
+  WsDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub "ws.${DomainName}"
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt WsDomainName.RegionalDomainName
+        HostedZoneId: !GetAtt WsDomainName.RegionalHostedZoneId
+        EvaluateTargetHealth: false
+
+Outputs:
+  SiteUrl:
+    Value: !Sub "https://${DomainName}"
+  ApiEndpoint:
+    Description: Default API Gateway execute-api URL (works before DNS/cert finish)
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  WsEndpoint:
+    Description: Default WebSocket execute-api URL (works before DNS/cert finish)
+    Value: !Sub "wss://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/production"
+  CdnUrl:
+    Value: !Sub "https://cdn.${DomainName}"
+  FrontendBucketName:
+    Value: !Ref FrontendBucket
+  CardImagesBucketName:
+    Value: !Ref CardImagesBucket
+  FrontendDistributionId:
+    Value: !Ref FrontendDistribution
+  CdnDistributionId:
+    Value: !Ref CdnDistribution
+  UsersTableName:
+    Value: !Ref UsersTable
+  DecklistsTableName:
+    Value: !Ref DecklistsTable
+  TournamentsTableName:
+    Value: !Ref TournamentsTable
+  ConnectionsTableName:
+    Value: !Ref ConnectionsTable
