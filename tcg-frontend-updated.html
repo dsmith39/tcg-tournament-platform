@@ -479,10 +479,19 @@
     </main>
 
     <footer>
-        <p>&copy; 2026 TCG Tournament Platform. Powered by Node.js + SQLite.</p>
+        <p>&copy; 2026 TCG Tournament Platform. Powered by Node.js + DynamoDB.</p>
     </footer>
 
-    <!-- Socket.IO client is loaded first so realtime bindings are available to app code. -->
+    <!--
+      /config.js only exists in deployed builds (written by deploy/aws/deploy.ps1)
+      and sets window.TCG_CONFIG so tcg-frontend.js knows the API/WebSocket
+      origins; a 404 here is expected and harmless in local dev.
+      /socket.io/socket.io.js only exists when the local Express server is
+      running its own Socket.IO instance; a 404 here is expected and harmless
+      once deployed, where tcg-frontend.js falls back to a raw WebSocket instead.
+      Both are loaded before tcg-frontend.js so their globals are available to it.
+    -->
+    <script src="/config.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script src="/tcg-frontend.js"></script>
 </body>

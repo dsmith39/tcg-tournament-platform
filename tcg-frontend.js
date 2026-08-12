@@ -6,8 +6,14 @@
  * - Auth/session handling and API request orchestration.
  * - Tournament/decklist rendering and live update subscriptions.
  */
-const API_URL = '/api';
-const YGO_CARD_API_URL = '/api/v7/cardinfo.php';
+// window.TCG_CONFIG is set by config.js, which only exists in deployed
+// builds (see deploy/aws/deploy.ps1) -- local dev has no config.js, so
+// API_URL stays relative and every request stays same-origin, same as
+// before the frontend and API were split across subdomains.
+const API_BASE_URL = (window.TCG_CONFIG && window.TCG_CONFIG.apiBaseUrl) || '';
+const API_URL = `${API_BASE_URL}/api`;
+const API_ORIGIN = new URL(API_URL, window.location.origin).origin;
+const YGO_CARD_API_URL = `${API_URL}/v7/cardinfo.php`;
 // Global UI and request state for the single-page frontend.
 let currentUser = null;
 let currentFormat = 'all';
@@ -208,7 +214,7 @@ function getRequestUrl(requestTarget) {
 
 function shouldAttemptSessionRefresh(requestTarget) {
     const url = getRequestUrl(requestTarget);
-    if (!url || url.origin !== window.location.origin || !url.pathname.startsWith('/api/')) {
+    if (!url || url.origin !== API_ORIGIN || !url.pathname.startsWith('/api/')) {
         return false;
     }
 
@@ -225,7 +231,7 @@ async function refreshAuthenticatedSession() {
     if (!activeSessionRefreshPromise) {
         activeSessionRefreshPromise = nativeFetch(`${API_URL}/auth/refresh`, {
             method: 'POST',
-            credentials: 'same-origin'
+            credentials: 'include'
         })
             .then((response) => response.ok)
             .catch(() => false)
@@ -274,7 +280,14 @@ window.fetch = async (input, init) => {
         normalizedInit.headers = headers;
 
         if (!normalizedInit.credentials) {
-            normalizedInit.credentials = 'same-origin';
+            // 'include' rather than 'same-origin': once deployed, the API lives on a
+            // different subdomain (api.theduelclub.com) than the page
+            // (theduelclub.com) -- still same-site by the Cookie spec (shared
+            // registrable domain), so the auth cookies' SameSite=Lax attribute still
+            // allows them, but the fetch call itself must opt in with 'include' or the
+            // browser won't attach them cross-origin. Local dev (no config.js, same
+            // origin) is unaffected either way.
+            normalizedInit.credentials = 'include';
         }
     }
 
@@ -339,7 +352,7 @@ function normalizeCardImageUrl(imageUrl) {
         return rawUrl;
     }
 
-    if (parsedUrl.origin === window.location.origin && parsedUrl.pathname.startsWith('/api/v7/')) {
+    if (parsedUrl.origin === API_ORIGIN && parsedUrl.pathname.startsWith('/api/v7/')) {
         return parsedUrl.toString();
     }
 

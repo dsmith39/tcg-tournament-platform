@@ -49,7 +49,23 @@ const {
 
 function registerApi(app) {
   // Global middleware is intentionally kept minimal here so route handlers remain explicit.
-  app.use(cors());
+  //
+  // Deployed, the frontend (theduelclub.com) and API (api.theduelclub.com) are
+  // different origins, and auth relies on cookies -- credentialed cross-origin
+  // fetches need the server to echo back a specific allowed origin (not `*`)
+  // with Access-Control-Allow-Credentials, or the browser drops the response.
+  // CORS_ALLOWED_ORIGINS (set in the Lambda's env, see template.yaml) is a
+  // comma-separated allowlist; unset (local dev, same-origin) falls back to
+  // reflecting whatever origin asked, which is harmless without credentials
+  // being requested cross-origin in the first place.
+  const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  app.use(cors({
+    origin: allowedOrigins.length ? allowedOrigins : true,
+    credentials: true
+  }));
   app.use(express.json());
 
   // Card lookups/images are served from the local SQLite mirror (card-database/), never
