@@ -97,6 +97,16 @@ const matchReopenBodySchema = z.object({
   note: z.string().trim().max(500).optional().default('Organizer reopened the match for correction')
 }).strict();
 
+const tournamentStatusValues = ['registration', 'active', 'completed'];
+
+const adminTournamentStatusBodySchema = z.object({
+  status: z.enum(tournamentStatusValues)
+}).strict();
+
+const adminReassignOrganizerBodySchema = z.object({
+  organizerId: objectIdSchema
+}).strict();
+
 const tournamentIdParamsSchema = z.object({
   id: objectIdSchema
 }).strict();
@@ -148,6 +158,7 @@ const validateRequest = ({ body, params } = {}) => (req, res, next) => {
 module.exports = {
   gameEnumValues,
   tournamentFormatValues,
+  objectIdSchema,
   registerBodySchema,
   loginBodySchema,
   userProfileUpdateBodySchema,
@@ -159,6 +170,8 @@ module.exports = {
   matchDisputeBodySchema,
   matchResolveBodySchema,
   matchReopenBodySchema,
+  adminTournamentStatusBodySchema,
+  adminReassignOrganizerBodySchema,
   tournamentIdParamsSchema,
   roundIdParamsSchema,
   matchIdParamsSchema,

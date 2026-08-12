@@ -22,6 +22,7 @@
                 <button onclick="switchSection('create')" id="create-btn" style="display:none;">Create</button>
                 <button onclick="switchSection('decklists')" id="decklists-btn" style="display:none;">Decklists</button>
                 <button onclick="viewUserProfile(getCurrentUserId())" id="profile-btn" style="display:none;">My Profile</button>
+                <button onclick="switchSection('admin')" id="admin-btn" style="display:none;">Admin</button>
                 <button onclick="toggleNotificationsPanel()" id="notifications-btn" style="display:none;">Notifications</button>
                 <span class="user-info" id="user-info" style="display:none;"></span>
                 <button onclick="logout()" id="logout-btn" style="display:none;">Logout</button>
@@ -454,6 +455,57 @@
             <button class="btn secondary" onclick="goBack()" style="margin-bottom: 1.5rem;">← Back</button>
             <div id="user-profile-content">
                 <div class="empty-state">Loading user profile...</div>
+            </div>
+        </section>
+
+        <!-- Admin Section -->
+        <section id="admin">
+            <h1>Admin</h1>
+            <div class="admin-tabs">
+                <button class="btn secondary admin-tab-btn active" data-admin-tab="overview" onclick="switchAdminTab('overview')">Overview</button>
+                <button class="btn secondary admin-tab-btn" data-admin-tab="tournaments" onclick="switchAdminTab('tournaments')">Tournaments</button>
+                <button class="btn secondary admin-tab-btn" data-admin-tab="disputes" onclick="switchAdminTab('disputes')">Disputes</button>
+            </div>
+
+            <div id="admin-tab-overview" class="admin-tab-panel">
+                <div id="admin-stats" class="meta-summary">
+                    <div class="empty-state">Loading stats...</div>
+                </div>
+            </div>
+
+            <div id="admin-tab-tournaments" class="admin-tab-panel" style="display:none;">
+                <div style="display: grid; grid-template-columns: 1.4fr 0.8fr 0.8fr; gap: 0.6rem; margin-bottom: 1rem;">
+                    <input type="text" id="admin-tournament-search" placeholder="Search by name" oninput="renderAdminTournaments()">
+                    <select id="admin-tournament-status-filter" onchange="renderAdminTournaments()">
+                        <option value="">All Statuses</option>
+                        <option value="registration">Registration</option>
+                        <option value="active">Active</option>
+                        <option value="completed">Completed</option>
+                    </select>
+                    <select id="admin-tournament-game-filter" onchange="renderAdminTournaments()">
+                        <option value="">All Games</option>
+                        <option value="ygo-tcg">Yu-Gi-Oh! TCG</option>
+                        <option value="master-duel">Master Duel</option>
+                        <option value="duel-links">Duel Links</option>
+                    </select>
+                </div>
+                <div class="table-wrap">
+                    <table id="admin-tournaments-table">
+                        <thead>
+                            <tr><th>Name</th><th>Game</th><th>Format</th><th>Status</th><th>Players</th><th>Organizer</th><th>Disputes</th><th>Created</th><th></th></tr>
+                        </thead>
+                        <tbody id="admin-tournaments-tbody">
+                            <tr><td colspan="9">Loading tournaments...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="admin-tab-disputes" class="admin-tab-panel" style="display:none;">
+                <p>Every currently-disputed match across every tournament — not just the ones you organize.</p>
+                <div id="admin-disputes-list">
+                    <div class="empty-state">Loading disputes...</div>
+                </div>
             </div>
         </section>
 

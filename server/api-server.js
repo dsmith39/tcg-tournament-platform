@@ -36,6 +36,8 @@ const {
   matchDisputeBodySchema,
   matchResolveBodySchema,
   matchReopenBodySchema,
+  adminTournamentStatusBodySchema,
+  adminReassignOrganizerBodySchema,
   tournamentIdParamsSchema,
   roundIdParamsSchema,
   matchIdParamsSchema,
@@ -84,6 +86,18 @@ function registerApi(app) {
   const gameEnum = gameEnumValues;
 
   const toIdString = (value) => (value ? value.toString() : null);
+
+  // Admin access is an email allowlist, not a stored role -- this is a
+  // solo-operator app, so there's no user management UI needed to grant it,
+  // and no DynamoDB migration to backfill a role field onto existing users.
+  // ADMIN_EMAILS is a comma-separated list (see .env.example).
+  const adminEmails = new Set(
+    (process.env.ADMIN_EMAILS || '')
+      .split(',')
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const isAdminUser = (user) => !!user && adminEmails.has((user.email || '').toLowerCase());
 
   // Route catch blocks call this instead of hardcoding a 500 so a tournament
   // optimistic-locking conflict (two organizers/players racing a mutation on
@@ -801,6 +815,13 @@ function registerApi(app) {
     return userId === organizerId || userId === player1Id || userId === player2Id;
   };
 
+  // Site admins can act as the organizer on any tournament -- needed to step
+  // in when a TO goes unresponsive mid-event (unstick a stuck round, resolve
+  // a dispute, reassign the tournament) without impersonating their account.
+  const isOrganizer = (tournament, req) => (
+    !!req.user?.isAdmin || toIdString(tournament.createdBy) === req.user.id
+  );
+
   const getOpenDisputeHistoryEntry = (match) => {
     const history = match.disputeHistory || [];
     for (let i = history.length - 1; i >= 0; i -= 1) {
@@ -1073,11 +1094,18 @@ function registerApi(app) {
         return res.status(401).json({ error: 'Session expired. Please login again.' });
       }
 
-      req.user = { id: toIdString(user._id), sessionVersion: user.sessionVersion || 0 };
+      req.user = { id: toIdString(user._id), sessionVersion: user.sessionVersion || 0, isAdmin: isAdminUser(user) };
       next();
     } catch (error) {
       res.status(401).json({ error: 'Invalid token' });
     }
+  };
+
+  // Gates the /api/admin/* routes. Must run after authMiddleware, which is
+  // what populates req.user.isAdmin from the ADMIN_EMAILS allowlist.
+  const requireAdmin = (req, res, next) => {
+    if (!req.user?.isAdmin) return res.status(403).json({ error: 'Admin access required' });
+    next();
   };
 
   const getOptionalUserIdFromAuthHeader = (req) => {
@@ -1230,7 +1258,7 @@ function registerApi(app) {
   app.get('/api/auth/me', authMiddleware, async (req, res) => {
     const user = await usersRepo.findById(req.user.id);
     const { password, ...safeUser } = user;
-    res.json(safeUser);
+    res.json({ ...safeUser, isAdmin: req.user.isAdmin });
   });
 
   // Update current user's public profile
@@ -1466,7 +1494,7 @@ function registerApi(app) {
       const tournament = await tournamentsRepo.findById(id);
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-      if (tournament.createdBy.toString() !== req.user.id) {
+      if (!isOrganizer(tournament, req)) {
         return res.status(403).json({ error: 'Not authorized' });
       }
 
@@ -1571,7 +1599,7 @@ function registerApi(app) {
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
-      if (tournament.createdBy.toString() !== req.user.id) {
+      if (!isOrganizer(tournament, req)) {
         return res.status(403).json({ error: 'Only the creator can start the tournament' });
       }
 
@@ -1836,7 +1864,7 @@ function registerApi(app) {
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
-      if (toIdString(tournament.createdBy) !== req.user.id) {
+      if (!isOrganizer(tournament, req)) {
         return res.status(403).json({ error: 'Only the organizer can resolve disputed results' });
       }
 
@@ -1914,7 +1942,7 @@ function registerApi(app) {
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
-      if (toIdString(tournament.createdBy) !== req.user.id) {
+      if (!isOrganizer(tournament, req)) {
         return res.status(403).json({ error: 'Only the organizer can reopen a match result' });
       }
 
@@ -1991,7 +2019,7 @@ function registerApi(app) {
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
-      if (toIdString(tournament.createdBy) !== req.user.id) {
+      if (!isOrganizer(tournament, req)) {
         return res.status(403).json({ error: 'Only the organizer can start rounds' });
       }
 
@@ -2044,7 +2072,7 @@ function registerApi(app) {
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
-      if (toIdString(tournament.createdBy) !== req.user.id) {
+      if (!isOrganizer(tournament, req)) {
         return res.status(403).json({ error: 'Only the organizer can lock rounds' });
       }
 
@@ -2086,7 +2114,7 @@ function registerApi(app) {
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
-      if (toIdString(tournament.createdBy) !== req.user.id) {
+      if (!isOrganizer(tournament, req)) {
         return res.status(403).json({ error: 'Only the creator can generate the next round' });
       }
 
@@ -2158,7 +2186,7 @@ function registerApi(app) {
 
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
-      if (tournament.createdBy.toString() !== req.user.id) {
+      if (!isOrganizer(tournament, req)) {
         return res.status(403).json({ error: 'Only the creator can complete the tournament' });
       }
 
@@ -2255,7 +2283,7 @@ function registerApi(app) {
       const tournament = await tournamentsRepo.findById(id);
       if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
-      if (toIdString(tournament.createdBy) !== req.user.id) {
+      if (!isOrganizer(tournament, req)) {
         return res.status(403).json({ error: 'Only the organizer can start the top cut' });
       }
 
@@ -2338,6 +2366,205 @@ function registerApi(app) {
 
       const populated = await getTournamentByIdWithDetails(tournament._id);
       broadcastTournamentUpdate('top-cut-started', populated);
+      res.json(buildTournamentResponse(populated));
+    } catch (error) {
+      sendServerError(res, error);
+    }
+  });
+
+  // --- Admin routes ---
+  //
+  // Site-operator-only views/actions that need visibility across every
+  // tournament and user, not just ones the caller owns -- the gap every
+  // other route in this file works around by scoping to req.user.id.
+  // Gated by requireAdmin (ADMIN_EMAILS allowlist); the dispute-resolution
+  // and tournament-management actions themselves reuse the existing
+  // resolve/reopen/start/lock/complete/delete routes above, now reachable by
+  // an admin on any tournament via the isOrganizer() admin bypass.
+
+  const userSummary = (user) => (user ? { _id: user._id, username: user.username, email: user.email } : null);
+
+  app.get('/api/admin/stats', authMiddleware, requireAdmin, async (req, res) => {
+    try {
+      const [tournaments, users] = await Promise.all([
+        tournamentsRepo.listAllFull(),
+        usersRepo.listAll()
+      ]);
+
+      const tournamentsByStatus = tournaments.reduce((acc, t) => {
+        acc[t.status] = (acc[t.status] || 0) + 1;
+        return acc;
+      }, {});
+
+      const disputedMatchCount = tournaments.reduce((total, t) => (
+        total + t.rounds.reduce((roundTotal, round) => (
+          roundTotal + round.matches.filter(isMatchDisputed).length
+        ), 0)
+      ), 0);
+
+      const DAY_MS = 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      const signupsSince = (days) => users.filter(
+        (u) => now - new Date(u.createdAt).getTime() <= days * DAY_MS
+      ).length;
+
+      res.json({
+        totalUsers: users.length,
+        signups7d: signupsSince(7),
+        signups30d: signupsSince(30),
+        totalTournaments: tournaments.length,
+        tournamentsByStatus,
+        disputedMatchCount
+      });
+    } catch (error) {
+      sendServerError(res, error);
+    }
+  });
+
+  // All tournaments, optionally filtered -- the cross-tournament counterpart
+  // to GET /api/tournaments (which is unfiltered but already public/unscoped
+  // via listSummaries()). This one adds status/game/name filtering and a
+  // per-tournament disputed-match count for the admin table.
+  app.get('/api/admin/tournaments', authMiddleware, requireAdmin, async (req, res) => {
+    try {
+      const { status, game, search } = req.query;
+      const tournaments = await tournamentsRepo.listAllFull();
+
+      const filtered = tournaments.filter((t) => {
+        if (status && t.status !== status) return false;
+        if (game && t.game !== game) return false;
+        if (search && !t.name.toLowerCase().includes(String(search).toLowerCase())) return false;
+        return true;
+      });
+
+      const summaries = await Promise.all(filtered.map(async (t) => {
+        const owner = await usersRepo.findById(t.createdBy);
+        return {
+          _id: t._id,
+          name: t.name,
+          game: t.game,
+          format: t.format,
+          status: t.status,
+          maxPlayers: t.maxPlayers,
+          currentPlayers: t.currentPlayers,
+          createdAt: t.createdAt,
+          createdBy: userSummary(owner),
+          disputedMatchCount: t.rounds.reduce(
+            (total, round) => total + round.matches.filter(isMatchDisputed).length, 0
+          )
+        };
+      }));
+
+      res.json(summaries);
+    } catch (error) {
+      sendServerError(res, error);
+    }
+  });
+
+  // Full hydrated detail for one tournament -- same shape the normal
+  // GET /api/tournaments/:id returns, just reachable regardless of who owns
+  // or is playing in it.
+  app.get('/api/admin/tournaments/:id', authMiddleware, requireAdmin, validateRequest({ params: tournamentIdParamsSchema }), async (req, res) => {
+    try {
+      const { id } = req.validated.params;
+      const populated = await getTournamentByIdWithDetails(id);
+      if (!populated) return res.status(404).json({ error: 'Tournament not found' });
+      res.json(buildTournamentResponse(populated));
+    } catch (error) {
+      sendServerError(res, error);
+    }
+  });
+
+  // Every currently-disputed match across every tournament -- a TO only sees
+  // disputes inside their own event, so this is the only place an admin can
+  // see one is stuck waiting on an unresponsive organizer.
+  app.get('/api/admin/disputes', authMiddleware, requireAdmin, async (req, res) => {
+    try {
+      const tournaments = await tournamentsRepo.listAllFull();
+      const disputes = [];
+
+      for (const t of tournaments) {
+        for (const round of t.rounds) {
+          for (const match of round.matches) {
+            if (!isMatchDisputed(match)) continue;
+            disputes.push({ tournament: t, round, match });
+          }
+        }
+      }
+
+      const hydrated = await Promise.all(disputes.map(async ({ tournament, round, match }) => {
+        const [player1, player2, disputedBy] = await Promise.all([
+          usersRepo.findById(match.player1),
+          usersRepo.findById(match.player2),
+          usersRepo.findById(match.disputedBy)
+        ]);
+
+        return {
+          tournamentId: tournament._id,
+          tournamentName: tournament.name,
+          roundNumber: round.number,
+          matchId: match._id,
+          player1: userSummary(player1),
+          player2: userSummary(player2),
+          disputeReason: match.disputeReason,
+          disputedBy: userSummary(disputedBy),
+          disputedAt: match.disputedAt
+        };
+      }));
+
+      hydrated.sort((a, b) => new Date(b.disputedAt) - new Date(a.disputedAt));
+      res.json(hydrated);
+    } catch (error) {
+      sendServerError(res, error);
+    }
+  });
+
+  // Emergency status override -- for a tournament stuck outside the normal
+  // start/complete state machine (e.g. an organizer's browser crashed
+  // mid-transition). Bypasses the business-rule checks the regular
+  // start/complete routes enforce; the admin using this is expected to have
+  // already looked at the tournament and know that's safe here.
+  app.patch('/api/admin/tournaments/:id/status', authMiddleware, requireAdmin, writeLimiter, validateRequest({ params: tournamentIdParamsSchema, body: adminTournamentStatusBodySchema }), async (req, res) => {
+    try {
+      const { id } = req.validated.params;
+      const { status } = req.validated.body;
+      const tournament = await tournamentsRepo.findById(id);
+      if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+
+      tournament.status = status;
+      if (status === 'completed') {
+        tournament.completedAt = tournament.completedAt || new Date();
+      } else {
+        tournament.completedAt = null;
+      }
+
+      await tournament.save();
+
+      const populated = await getTournamentByIdWithDetails(tournament._id);
+      broadcastTournamentUpdate('admin-status-override', populated);
+      res.json(buildTournamentResponse(populated));
+    } catch (error) {
+      sendServerError(res, error);
+    }
+  });
+
+  // Reassigns the organizer -- for when a TO disappears mid-event and
+  // someone else (or the admin) needs to take over running it.
+  app.patch('/api/admin/tournaments/:id/organizer', authMiddleware, requireAdmin, writeLimiter, validateRequest({ params: tournamentIdParamsSchema, body: adminReassignOrganizerBodySchema }), async (req, res) => {
+    try {
+      const { id } = req.validated.params;
+      const { organizerId } = req.validated.body;
+      const tournament = await tournamentsRepo.findById(id);
+      if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+
+      const newOrganizer = await usersRepo.findById(organizerId);
+      if (!newOrganizer) return res.status(404).json({ error: 'User not found' });
+
+      tournament.createdBy = organizerId;
+      await tournament.save();
+
+      const populated = await getTournamentByIdWithDetails(tournament._id);
+      broadcastTournamentUpdate('admin-organizer-reassigned', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
       sendServerError(res, error);

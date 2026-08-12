@@ -216,6 +216,16 @@ async function listSummaries() {
   })));
 }
 
+// Admin-only: every tournament, rounds included. listSummaries() strips
+// rounds for the public tournament list, but the admin dashboard/dispute
+// queue/tournament management views all need round+match data across every
+// tournament, not just one creator's (listByCreator) or one player's
+// (listByPlayer). One Scan feeds all three admin views instead of one each.
+async function listAllFull() {
+  const { Items } = await getClient().send(new ScanCommand({ TableName: TABLE }));
+  return (Items || []).map(itemToTournament).sort((a, b) => b.createdAt - a.createdAt);
+}
+
 async function listByCreator(creatorId, { limit } = {}) {
   const { Items } = await getClient().send(new QueryCommand({
     TableName: TABLE,
@@ -386,6 +396,7 @@ module.exports = {
   findByIdHydrated,
   deleteById,
   listSummaries,
+  listAllFull,
   listByCreator,
   listByPlayer,
   countByCreator,

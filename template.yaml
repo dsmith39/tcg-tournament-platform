@@ -18,6 +18,10 @@ Parameters:
   JwtSecret:
     Type: String
     NoEcho: true
+  AdminEmails:
+    Type: String
+    Default: hello@milehighwebstudio.com
+    Description: Comma-separated allowlist of user emails granted access to the /admin panel.
 
 Resources:
   # ---------------------------------------------------------------------
@@ -372,6 +376,7 @@ Resources:
           CARD_DB_READONLY: "true"
           CARD_IMAGE_BASE_URL: !Sub "https://cdn.${DomainName}"
           CORS_ALLOWED_ORIGINS: !Sub "https://${DomainName},https://www.${DomainName}"
+          ADMIN_EMAILS: !Ref AdminEmails
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UsersTable

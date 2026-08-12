@@ -35,6 +35,7 @@ async function registerUser(client, { username, email, password }) {
 test.before(async () => {
   process.env.NODE_ENV = 'test';
   process.env.JWT_SECRET = 'test-jwt-secret';
+  process.env.ADMIN_EMAILS = 'admin@example.com';
 
   // A local dynalite instance stands in for DynamoDB; server/dynamo.js
   // points at it whenever DYNAMODB_ENDPOINT is set, mirroring the old
@@ -611,6 +612,104 @@ test('rate limit flow: auth limiter key is isolated by client ip', async () => {
   assert.notEqual(secondIpResponse.status, 429);
   assert.equal(secondIpResponse.status, 400);
   assert.equal(secondIpResponse.body.error, 'Invalid credentials');
+});
+
+test('admin: non-admin users are blocked from admin routes', async () => {
+  const client = request.agent(app);
+  await registerUser(client, {
+    username: 'regularuser',
+    email: 'regularuser@example.com',
+    password: 'secret123'
+  });
+
+  const meResponse = await client.get('/api/auth/me');
+  assert.equal(meResponse.body.isAdmin, false);
+
+  const statsResponse = await client.get('/api/admin/stats');
+  assert.equal(statsResponse.status, 403);
+});
+
+test('admin: allowlisted email gets cross-tournament visibility and organizer bypass', async () => {
+  const adminClient = request.agent(app);
+  const organizerClient = request.agent(app);
+
+  const { user: adminUser } = await registerUser(adminClient, {
+    username: 'siteadmin',
+    email: 'admin@example.com',
+    password: 'secret123'
+  });
+
+  await registerUser(organizerClient, {
+    username: 'someorganizer',
+    email: 'someorganizer@example.com',
+    password: 'secret123'
+  });
+
+  const meResponse = await adminClient.get('/api/auth/me');
+  assert.equal(meResponse.body.isAdmin, true);
+
+  const tournamentResponse = await organizerClient
+    .post('/api/tournaments')
+    .send({
+      name: 'Admin Visibility Cup',
+      game: 'ygo-tcg',
+      format: 'swiss',
+      maxPlayers: 16
+    });
+  assert.equal(tournamentResponse.status, 201);
+  const tournamentId = tournamentResponse.body._id;
+
+  // Admin isn't the organizer but should still see it in the cross-tournament list.
+  const listResponse = await adminClient.get('/api/admin/tournaments');
+  assert.equal(listResponse.status, 200);
+  assert.ok(listResponse.body.some((t) => t._id === tournamentId));
+
+  const statsResponse = await adminClient.get('/api/admin/stats');
+  assert.equal(statsResponse.status, 200);
+  assert.ok(statsResponse.body.totalTournaments >= 1);
+  assert.ok(statsResponse.body.totalUsers >= 2);
+
+  const disputesResponse = await adminClient.get('/api/admin/disputes');
+  assert.equal(disputesResponse.status, 200);
+  assert.deepEqual(disputesResponse.body, []);
+
+  // Emergency status override bypasses the normal start/complete business rules.
+  const statusOverride = await adminClient
+    .patch(`/api/admin/tournaments/${tournamentId}/status`)
+    .send({ status: 'active' });
+  assert.equal(statusOverride.status, 200);
+  assert.equal(statusOverride.body.status, 'active');
+
+  // A second tournament to test organizer reassignment in isolation.
+  const secondTournament = await organizerClient
+    .post('/api/tournaments')
+    .send({
+      name: 'Reassignment Cup',
+      game: 'ygo-tcg',
+      format: 'swiss',
+      maxPlayers: 16
+    });
+  assert.equal(secondTournament.status, 201);
+
+  const reassignResponse = await adminClient
+    .patch(`/api/admin/tournaments/${secondTournament.body._id}/organizer`)
+    .send({ organizerId: adminUser.id });
+  assert.equal(reassignResponse.status, 200);
+  assert.equal(reassignResponse.body.createdBy._id, adminUser.id);
+
+  // A non-admin, non-organizer can't delete someone else's tournament...
+  const outsiderClient = request.agent(app);
+  await registerUser(outsiderClient, {
+    username: 'outsider',
+    email: 'outsider@example.com',
+    password: 'secret123'
+  });
+  const blockedDelete = await outsiderClient.delete(`/api/tournaments/${tournamentId}`);
+  assert.equal(blockedDelete.status, 403);
+
+  // ...but the admin can, via the isOrganizer() bypass on the regular route.
+  const adminDelete = await adminClient.delete(`/api/tournaments/${tournamentId}`);
+  assert.equal(adminDelete.status, 200);
 });
 
 test('card database: cardinfo.php looks up a card by id', async () => {
