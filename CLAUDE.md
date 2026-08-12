@@ -3,7 +3,8 @@
 ## Project Overview
 
 A web application for Yu-Gi-Oh! players and tournament organizers (primarily Yu-Gi-Oh! TCG,
-Master Duel, Duel Links). Two halves in one app:
+Master Duel, Duel Links). Deployed live as **The Duel Club** at **theduelclub.com**. Two
+halves in one app:
 
 - **Tournament platform**: user accounts, decklist management, full tournament lifecycle
   (registration, Swiss/elimination pairings, match reporting with dispute resolution,
@@ -16,8 +17,10 @@ Card data (search, images) is served from a local SQLite mirror of the YGOPRODec
 (`card-database/`, absorbed from a former standalone `ygo-database` project) rather than
 calling the public YGOPRODeck API on every request — see "Card Database" below.
 
-The stack is intentionally minimal: vanilla JavaScript SPA on the frontend, Express +
-SQLite + Socket.IO on the backend, no build tools.
+The stack is intentionally minimal: vanilla JavaScript SPA on the frontend, Express on the
+backend, no build tools. App data (users/decklists/tournaments) lives in **DynamoDB**; the
+card catalog stays in local **SQLite**. Live updates use Socket.IO locally and API Gateway
+WebSocket once deployed — see "Real-time" below.
 
 ---
 
@@ -50,9 +53,12 @@ npm run cards:init-db
 npm run cards:import
 npm run cards:search -- "Blue-Eyes"
 npm run cards:download-images
+
+# Deploy to AWS (theduelclub.com) — see "Deployment" below
+.\deploy\aws\deploy.ps1
 ```
 
-**Default port:** `5000` (set via `PORT` env var). Playwright E2E tests expect port `3200` — set `PORT=3200` when running the server for E2E.
+**Default port:** `3001` (set via `PORT` env var). Playwright E2E tests expect port `3200` — set `PORT=3200` when running the server for E2E.
 
 ---
 
@@ -60,18 +66,23 @@ npm run cards:download-images
 
 ### Backend
 
-Single Express app served from `server.js`. All API logic lives in `server/api-server.js` and is registered via `registerApi(app, io)`. Socket.IO shares the same HTTP server for real-time updates. The card-database router (`card-database/src/api_router.js`) is mounted at `/api/v7` inside `registerApi`.
+Single Express app served from `server.js`. All API logic lives in `server/api-server.js` and is registered via `registerApi(app)`. The card-database router (`card-database/src/api_router.js`) is mounted at `/api/v7` inside `registerApi`.
 
 ```
-server.js                     # Entry point — HTTP server, Socket.IO, static routes
+server.js                     # Entry point — HTTP server, Socket.IO (local dev), static routes
 server/
   api-server.js               # Route handlers, tournament/match business logic (~2,600 lines)
-  db.js                       # SQLite connection + schema (server/data/app.db)
+  dynamo.js                   # DynamoDB client (getClient, test-only resetTables())
+  dynamo-schema.js             # Table names + CreateTable definitions (source of truth for tests)
+  realtime.js                  # Transport-agnostic broadcast: Socket.IO locally, API Gateway
+                               # PostToConnection when deployed (see "Real-time" below)
+  ws-handler/
+    index.js                  # Separate Lambda: API Gateway WebSocket $connect/$disconnect
   models/
     id.js                     # generateId() — 24-char hex ids, shaped like Mongo ObjectIds
-    users.js                  # User repository
-    decklists.js              # Decklist repository
-    tournaments.js            # Tournament repository + populate()-equivalent hydration
+    users.js                  # User repository (DynamoDB)
+    decklists.js              # Decklist repository (DynamoDB)
+    tournaments.js            # Tournament repository (DynamoDB) + populate()-equivalent hydration
   security.js                 # Rate limiting policies (auth, write, match actions)
   validation.js                # Zod schemas + validateRequest middleware
 card-database/
@@ -83,15 +94,18 @@ card-database/
     search_cards.js           # CLI card search
     download_card_images.js   # Downloads card images locally
     init_db.js                # Schema-only init
+    flatten_for_deploy.js     # Switches a staged cards.db copy out of WAL mode before zipping
   card-images/                # Downloaded card art (gitignored, ~4.6GB)
   data/cards.db                # SQLite card catalog (gitignored)
 ```
 
-**Route prefix:** All API routes are under `/api/`. The frontend SPA shell is served for every other route.
+**Route prefix:** All API routes are under `/api/`. Locally, `server.js` also serves the frontend SPA shell for every other route; deployed, the frontend is static (S3 + CloudFront) and the Lambda only ever answers `/api/*` — see "Deployment".
 
-**Auth:** Cookie-based JWTs. Access tokens (15-min TTL) and refresh tokens (7-day TTL, hashed, rotated on use) are set as `httpOnly` cookies. The `sessionVersion` field on User invalidates all tokens on logout-all.
+**Auth:** Cookie-based JWTs. Access tokens (15-min TTL) and refresh tokens (7-day TTL, hashed, rotated on use) are set as `httpOnly` cookies. The `sessionVersion` field on User invalidates all tokens on logout-all. Deployed, the frontend and API are different origins (theduelclub.com / api.theduelclub.com), so `CORS_ALLOWED_ORIGINS` (server/api-server.js) allowlists specific origins and echoes credentials instead of using `*`.
 
-**Real-time:** Socket.IO emits `tournament:updated` and `decklist:updated` events after mutations so connected clients refresh without polling.
+**Real-time:** `server/realtime.js` broadcasts `tournaments:updated` and `decklist:updated` after mutations, transport chosen by `REALTIME_TRANSPORT`:
+- **Local dev (default, `socketio`):** `server.js` attaches Socket.IO to the shared HTTP server; `realtime.js` calls `io.emit(...)` directly. No AWS-native local emulator exists for API Gateway WebSocket, so this stays the local path.
+- **Deployed (`apigw-ws`):** a separate WebSocket API + minimal Lambda (`server/ws-handler/`) tracks connections in the `Connections` DynamoDB table on `$connect`/`$disconnect`; `realtime.js` broadcasts by scanning that table and calling `PostToConnection` on each. Unauthenticated global broadcast — no rooms, no per-user targeting, matching the Socket.IO behavior it replaces.
 
 ### Frontend
 
@@ -99,10 +113,12 @@ A single-file vanilla JS SPA:
 ```
 tcg-frontend-updated.html     # HTML shell (loads CSS + JS)
 tcg-frontend.css              # Styles with CSS custom properties for dark/light theming
-tcg-frontend.js               # ~4,400 lines — all routing, rendering, API calls, Socket.IO client
+tcg-frontend.js               # ~4,400 lines — all routing, rendering, API calls, live-update client
 ```
 
 No framework, no bundler, no build step. DOM is manipulated directly. Global state is stored in module-level variables (`currentUser`, `currentTournamentDetailId`, `deckBuilder`, `lpState`, `metaTrackerHistory`, etc.).
+
+`initializeRealtimeSocket()` picks its transport at runtime: if `window.TCG_CONFIG.wsUrl` is set it opens a raw `WebSocket` against it (deployed), otherwise it falls back to the Socket.IO client (local dev). `window.TCG_CONFIG` only exists in deployed builds — it's written to a `config.js` by `deploy/aws/deploy.ps1` (`apiBaseUrl`, `wsUrl`, `cardImageBaseUrl`); locally the frontend calls same-origin `/api/...` and connects Socket.IO with no config needed. A `/config.js` 404 locally and a `/socket.io/socket.io.js` 404 once deployed are both expected — see the comment in `tcg-frontend-updated.html`.
 
 **Sections:** hand-rolled router — `<section id="...">` elements toggled by `activateSection()`/`switchSection()`, with URL sync via `getRouteFromLocation()`/`getPathForSection()`/`renderRouteFromLocation()`. `card-lookup`, `meta-tracker`, and `lp-calc` are the three player-tool sections; unlike `dashboard`/`create`/`decklists`, they are **not** auth-gated in `switchSection()`.
 
@@ -118,17 +134,17 @@ npm run cards:download-images  # download card art locally (~4.6GB for all varia
 
 There is **no automatic live-API fallback** on a cache miss — a card missing locally just isn't found until the operator reruns `cards:import`. This is deliberate: YGOPRODeck doesn't want the app hammering their API on every user search.
 
+Deployed, `cards.db` ships read-only inside the Lambda zip. `CARD_DB_READONLY=true` (set only in that Lambda's env) skips the WAL pragma/schema bootstrap in `card-database/src/db.js`, which would otherwise throw `EROFS` on Lambda's read-only filesystem; `deploy/aws/deploy.ps1` runs `flatten_for_deploy.js` on a staged copy first since WAL mode needs to create a `-shm` file even for read-only connections. Card images are served from a CloudFront CDN (`cdn.theduelclub.com`) instead of this app once `CARD_IMAGE_BASE_URL` is set — `card-database/src/api_router.js` builds URLs against it instead of its own `/card-image/:id` route.
+
 ### Database
 
-Two separate SQLite files (via Node's built-in `node:sqlite`, not the `better-sqlite3` npm package — this workspace doesn't have a C++ build toolchain installed, and `node:sqlite` needs no native compilation):
+Two storage engines, split by write pattern:
 
-- **`server/data/app.db`** — `users`, `decklists`, `tournaments` tables. Tournaments store their nested rounds/matches/registrations as a JSON column (`tournaments.data`) rather than fully normalized child tables: every route handler already loads a tournament whole, mutates the in-memory tree, and saves it back whole, so there's no per-row concurrent-update pattern that would benefit from normalization.
-- **`card-database/data/cards.db`** — `cards` table, one row per Yu-Gi-Oh card, `images`/`sets`/`prices`/`banlistInfo` stored as JSON columns.
-
-Both are `:memory:` databases when `NODE_ENV=test` (see `server/db.js`/`card-database/src/db.js` `resetDb()`), so the test suite never touches the real `.db` files.
+- **DynamoDB** — app data (`users`, `decklists`, `tournaments`, plus a `connections` table for WebSocket fan-out). Table names/schemas are defined once in `server/dynamo-schema.js` and mirrored by hand in `template.yaml`'s `AWS::DynamoDB::Table` resources (only 4 tables, so drift risk is low). Tournaments store their nested rounds/matches/registrations as a single JSON-shaped item attribute rather than normalized child items: every route handler already loads a tournament whole, mutates the in-memory tree, and saves it back whole, so there's no per-item concurrent-update pattern that would benefit from normalization. `users` enforces username/email uniqueness with a lock-item pattern (extra items at `pk="USERNAME#<u>"`/`pk="EMAIL#<e>"`) since DynamoDB has no native unique-attribute constraint. `server/dynamo.js` is the shared client; tests point it at a local `dynalite` instance via `DYNAMODB_ENDPOINT` and call `resetTables()` for a clean slate per run.
+- **SQLite** (`card-database/data/cards.db`, via Node's built-in `node:sqlite`, not the `better-sqlite3` npm package — no C++ build toolchain in this workspace, and `node:sqlite` needs no native compilation) — bulk-overwritten catalog data only, never written to by live user traffic. One `cards` table, `images`/`sets`/`prices`/`banlistInfo` stored as JSON columns. `:memory:` when `NODE_ENV=test`.
 
 Model shapes (fields on objects returned by `server/models/*.js`):
-- **User** — auth, profile, `refreshTokens` (JSON array on the row), `sessionVersion`
+- **User** — auth, profile, `refreshTokens` (JSON array), `sessionVersion`
 - **Decklist** — card lists stored as newline-separated strings
 - **Tournament** — status machine: `registration → active → completed`
 - **Round** (in `tournament.rounds`) — `not_started → active → locked → completed`
@@ -159,7 +175,7 @@ In tests, `NODE_ENV=test` enables rate limiting but the test suite calls `flushR
 - **Top cut:** supported after Swiss rounds complete; creates a new elimination bracket phase
 - **Match confirmation flow:** reporter sets result → opponent confirms or disputes → TO can resolve or reopen
 
-This logic (in `server/api-server.js`) is pure JS operating on an in-memory tournament object tree — it's identical regardless of storage engine, and was left untouched by the MongoDB → SQLite migration.
+This logic (in `server/api-server.js`) is pure JS operating on an in-memory tournament object tree — it's identical regardless of storage engine, and was left untouched across the MongoDB → SQLite → DynamoDB migrations.
 
 ### Deck Builder
 
@@ -171,7 +187,7 @@ The decklist form (`#decklists` section) already enforces per-format size limits
 
 ```
 tests/
-  api.integration.test.js     # Supertest + in-memory SQLite (:memory:), Node built-in runner
+  api.integration.test.js     # Supertest + a local dynalite instance standing in for DynamoDB
   e2e/
     auth.spec.js
     decklists.spec.js
@@ -182,7 +198,7 @@ tests/
     helpers/mock-api.js
 ```
 
-- Integration tests use an in-memory SQLite database (`NODE_ENV=test` → `server/db.js` opens `:memory:`), reset fresh in `beforeEach` via `resetDb()`.
+- Integration tests spin up `dynalite` (an in-process DynamoDB emulator) and point `server/dynamo.js` at it via `DYNAMODB_ENDPOINT`, reset fresh via `resetTables()`. The card catalog still uses in-memory SQLite (`NODE_ENV=test` → `card-database/src/db.js` opens `:memory:`).
 - E2E tests run against the live server; `playwright.config.js` starts it automatically via `webServer`.
 - The CI pipeline runs both suites; E2E uses 1 worker (`--workers=1`) to avoid port conflicts.
 
@@ -191,16 +207,43 @@ tests/
 ## Environment Variables
 
 ```
-PORT=5000                     # HTTP server port
+PORT=3001                     # HTTP server port (server.js default; E2E overrides to 3200)
 HOST=127.0.0.1                # Bind address
 JWT_SECRET=<strong-random-secret>  # generate with: node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
-NODE_ENV=development          # Set to "test" in test scripts (also switches both DBs to :memory:)
-CARD_IMAGE_DIR=               # Optional override for card-database/src/api_router.js's image directory
+NODE_ENV=development          # Set to "test" in test scripts (dynalite + in-memory card SQLite)
+CARD_IMAGE_DIR=               # Optional override for card-database/src/api_router.js's local image directory
+
+# DynamoDB (all optional locally — default to the real theduelclub-* AWS tables
+# under your own credentials; set only for tests or to target a different stack)
+USERS_TABLE=, DECKLISTS_TABLE=, TOURNAMENTS_TABLE=, CONNECTIONS_TABLE=
+DYNAMODB_ENDPOINT=            # Set by tests to point at a local dynalite instance
+
+# Deployment-only (set by template.yaml in the Lambda's environment, not used locally)
+REALTIME_TRANSPORT=socketio   # "socketio" (local default) or "apigw-ws" (deployed)
+WS_API_ENDPOINT=              # API Gateway Management API endpoint, apigw-ws mode only
+CARD_DB_READONLY=             # "true" on the deployed Lambda — skips WAL/schema writes to cards.db
+CARD_IMAGE_BASE_URL=          # CDN origin for card art once deployed (cdn.theduelclub.com)
+CORS_ALLOWED_ORIGINS=         # Comma-separated allowlist; unset = reflect any origin (local/same-origin)
 ```
 
-**No database URL needed** — both SQLite databases are just files, created automatically on first run (`server/data/app.db`, `card-database/data/cards.db`).
+**No database URL needed for local dev** — the card catalog is a SQLite file created automatically on first run (`card-database/data/cards.db`); app data talks to real AWS DynamoDB via your own credentials unless `DYNAMODB_ENDPOINT` is set.
 
 **Never commit real secrets.** `.env` is listed in `.gitignore` and is never tracked by git. Copy `.env.example` to `.env` and fill in real values before running the server. `.env.example` contains only placeholder values and is safe to commit.
+
+---
+
+## Deployment
+
+Live at **theduelclub.com**, deployed as a single AWS SAM/CloudFormation stack (`template.yaml`, stack name `theduelclub`, `us-east-1`) via `.\deploy\aws\deploy.ps1`:
+
+- **Frontend** — static (`tcg-frontend-updated.html`/`.css`/`.js`) on S3 + CloudFront, not served by the Lambda. `CustomErrorResponses` fall back 403/404 to `index.html` so the SPA's own router still handles client-side paths.
+- **API** — the same Express app as local dev, on Lambda behind an API Gateway HTTP API (`api.theduelclub.com`), via the Lambda Web Adapter (`run.sh`, `AWS_LAMBDA_EXEC_WRAPPER`).
+- **Live updates** — a separate WebSocket API (`ws.theduelclub.com`) + `server/ws-handler/` Lambda; see "Real-time" above.
+- **App data** — DynamoDB (`theduelclub-Users/Decklists/Tournaments/Connections`), `PAY_PER_REQUEST`, retained on stack deletion.
+- **Card images** — a second S3 + CloudFront pair (`cdn.theduelclub.com`), kept separate from the frontend distribution since a cache-forever 4.6GB immutable image set has different invalidation needs than the frequently-redeployed SPA bundle.
+- **Certificate/DNS** — one ACM cert (must be `us-east-1` for CloudFront) covers apex/`www`/`api`/`ws`/`cdn`; Route 53 records point at each.
+
+`deploy.ps1` requires the AWS CLI (authenticated), Docker Desktop running (zips the Lambda package with Unix file-mode bits intact — Windows zip tools strip them, breaking the Web Adapter's cold start), and `card-database/data/cards.db` already built (`npm run cards:init-db && npm run cards:import`). Pass `-SyncCardImages` to also sync the ~4.6GB image set (slow, so it's opt-in per deploy). The JWT secret is read from `.env` by default so re-deploys keep existing sessions valid; override with `-JwtSecret`.
 
 ---
 
