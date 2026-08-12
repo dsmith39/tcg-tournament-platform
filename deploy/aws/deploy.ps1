@@ -69,6 +69,18 @@ try {
     throw "card-database\data\cards.db not found -- run 'npm run cards:init-db' and 'npm run cards:import' first."
   }
   Copy-Item $cardsDb (Join-Path $stagingDir 'card-database\data\cards.db')
+  # Copy WAL sidecar files too (if present) so any committed-but-not-yet-
+  # checkpointed data isn't silently dropped before flattening below.
+  foreach ($suffix in @('-wal', '-shm')) {
+    $sidecar = "$cardsDb$suffix"
+    if (Test-Path $sidecar) {
+      Copy-Item $sidecar (Join-Path $stagingDir "card-database\data\cards.db$suffix")
+    }
+  }
+  Write-Host 'Flattening staged cards.db out of WAL mode (required for read-only access on Lambda)...'
+  Invoke-Checked 'flatten cards.db out of WAL mode' {
+    node (Join-Path $repoRoot 'card-database\src\flatten_for_deploy.js') (Join-Path $stagingDir 'card-database\data\cards.db')
+  }
 
   Write-Host 'Installing production dependencies into the staged package...'
   Push-Location $stagingDir
