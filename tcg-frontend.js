@@ -793,6 +793,209 @@ async function exportDecklistByIdAsYdk(decklistId) {
     addNotification('Decklist exported as .ydk.', 'success');
 }
 
+function downloadTextFile(filename, content) {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+}
+
+// Groups a flat, duplicates-included name list into "3x Card Name" lines.
+function groupCardNameCounts(names) {
+    const counts = new Map();
+    names.forEach((name) => counts.set(name, (counts.get(name) || 0) + 1));
+    return Array.from(counts.entries()).map(([name, qty]) => `${qty}x ${name}`);
+}
+
+// Human-readable plain-text export -- grouped with "3x" quantities and section
+// headers, unlike the .ydk export (which repeats each copy on its own line under
+// #main/#extra/!side markers so it stays compatible with .ydk-style importers).
+function buildPlainTextDeckContent({ name, game, mainNames, extraNames, sideNames, notes }) {
+    const gameLabel = {
+        'ygo-tcg': 'Yu-Gi-Oh! TCG',
+        'master-duel': 'Master Duel',
+        'duel-links': 'Duel Links'
+    }[game] || game || '';
+
+    const lines = [gameLabel ? `${name || 'Decklist'} (${gameLabel})` : (name || 'Decklist'), ''];
+
+    lines.push(`Main Deck (${mainNames.length})`, ...groupCardNameCounts(mainNames), '');
+
+    if (extraNames.length) {
+        lines.push(`Extra Deck (${extraNames.length})`, ...groupCardNameCounts(extraNames), '');
+    }
+
+    if (sideNames.length) {
+        lines.push(`Side Deck (${sideNames.length})`, ...groupCardNameCounts(sideNames), '');
+    }
+
+    if (notes) {
+        lines.push('Notes:', notes);
+    }
+
+    return `${lines.join('\n').trim()}\n`;
+}
+
+function getCurrentDeckTextContent() {
+    const nameInput = document.getElementById('decklist-name');
+    const gameSelect = document.getElementById('decklist-game');
+    const notesInput = document.getElementById('decklist-notes');
+
+    return {
+        name: nameInput?.value?.trim() || 'Decklist',
+        content: buildPlainTextDeckContent({
+            name: nameInput?.value?.trim() || 'Decklist',
+            game: gameSelect?.value || '',
+            mainNames: deckBuilder.main.map((c) => c.name),
+            extraNames: deckBuilder.extra.map((c) => c.name),
+            sideNames: deckBuilder.side.map((c) => c.name),
+            notes: notesInput?.value?.trim() || ''
+        })
+    };
+}
+
+// Fetches (or reuses currentDecklistDetail) and builds text content for a saved
+// decklist. Returns null -- after already notifying the user -- on failure, so
+// callers can just bail out.
+async function getSavedDecklistTextContent(decklistId) {
+    let decklist = currentDecklistDetail;
+    if (!decklist || getEntityId(decklist) !== decklistId) {
+        try {
+            const token = localStorage.getItem('token');
+            const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+            const response = await fetch(`${API_URL}/decklists/${decklistId}`, { headers });
+            const data = await response.json();
+            if (!response.ok) {
+                addNotification(data.error || 'Unable to load decklist.', 'warning');
+                return null;
+            }
+            decklist = data;
+        } catch (error) {
+            addNotification('Unable to load decklist right now.', 'warning');
+            return null;
+        }
+    }
+
+    return {
+        name: decklist.name,
+        content: buildPlainTextDeckContent({
+            name: decklist.name,
+            game: decklist.game,
+            mainNames: parseDeckTextToNames(decklist.mainDeck || ''),
+            extraNames: parseDeckTextToNames(decklist.extraDeck || ''),
+            sideNames: parseDeckTextToNames(decklist.sideDeck || ''),
+            notes: decklist.notes || ''
+        })
+    };
+}
+
+function exportCurrentDeckAsText() {
+    const { name, content } = getCurrentDeckTextContent();
+    const filename = `${(name || 'decklist').trim().replace(/[^a-zA-Z0-9-_]+/g, '_') || 'decklist'}.txt`;
+    downloadTextFile(filename, content);
+    setDeckCardFeedback('Exported current deck as text', 'success');
+}
+
+async function copyCurrentDeckAsText() {
+    const { content } = getCurrentDeckTextContent();
+    try {
+        await navigator.clipboard.writeText(content);
+        setDeckCardFeedback('Deck copied to clipboard as text', 'success');
+    } catch (error) {
+        setDeckCardFeedback('Could not copy to clipboard. Try Export Text instead.');
+    }
+}
+
+async function exportDecklistByIdAsText(decklistId) {
+    const result = await getSavedDecklistTextContent(decklistId);
+    if (!result) return;
+
+    const filename = `${(result.name || 'decklist').trim().replace(/[^a-zA-Z0-9-_]+/g, '_') || 'decklist'}.txt`;
+    downloadTextFile(filename, result.content);
+    addNotification('Decklist exported as text.', 'success');
+}
+
+async function copyDecklistByIdAsText(decklistId) {
+    const result = await getSavedDecklistTextContent(decklistId);
+    if (!result) return;
+
+    try {
+        await navigator.clipboard.writeText(result.content);
+        addNotification('Decklist copied to clipboard as text.', 'success');
+    } catch (error) {
+        addNotification('Could not copy to clipboard. Try Export Text instead.', 'warning');
+    }
+}
+
+// Builds text content for a decklist a player submitted with their tournament
+// registration. Goes through GET /api/tournaments/:id (public, no auth) and reads
+// the decklist snapshot embedded in that player's registration, rather than
+// GET /api/decklists/:id -- the registration preview already shows this player's
+// deck to anyone viewing the tournament regardless of the decklist's own
+// public/private flag, so fetching by decklist id (which enforces that flag)
+// would 403 here for a private decklist even though the content is already visible.
+async function getRegistrationDeckTextContent(tournamentId, playerId) {
+    try {
+        const response = await fetch(`${API_URL}/tournaments/${tournamentId}`);
+        const tournament = await response.json();
+        if (!response.ok) {
+            addNotification(tournament.error || 'Unable to load tournament.', 'warning');
+            return null;
+        }
+
+        const registration = (tournament.registrations || []).find(
+            (r) => getEntityId(r.user) === playerId
+        );
+        const decklist = registration?.decklist;
+        if (!decklist) {
+            addNotification('No decklist found for this player.', 'warning');
+            return null;
+        }
+
+        const name = decklist.name || registration.deckName || 'Decklist';
+        return {
+            name,
+            content: buildPlainTextDeckContent({
+                name,
+                game: decklist.game || registration.deckGame || '',
+                mainNames: parseDeckTextToNames(decklist.mainDeck || ''),
+                extraNames: parseDeckTextToNames(decklist.extraDeck || ''),
+                sideNames: parseDeckTextToNames(decklist.sideDeck || ''),
+                notes: decklist.notes || ''
+            })
+        };
+    } catch (error) {
+        addNotification('Unable to load decklist right now.', 'warning');
+        return null;
+    }
+}
+
+async function exportRegistrationDeckAsText(tournamentId, playerId) {
+    const result = await getRegistrationDeckTextContent(tournamentId, playerId);
+    if (!result) return;
+
+    const filename = `${(result.name || 'decklist').trim().replace(/[^a-zA-Z0-9-_]+/g, '_') || 'decklist'}.txt`;
+    downloadTextFile(filename, result.content);
+    addNotification('Decklist exported as text.', 'success');
+}
+
+async function copyRegistrationDeckAsText(tournamentId, playerId) {
+    const result = await getRegistrationDeckTextContent(tournamentId, playerId);
+    if (!result) return;
+
+    try {
+        await navigator.clipboard.writeText(result.content);
+        addNotification('Decklist copied to clipboard as text.', 'success');
+    } catch (error) {
+        addNotification('Could not copy to clipboard. Try Export Text instead.', 'warning');
+    }
+}
+
 function getDecklistShareUrl(decklistId) {
     return `${window.location.origin}/decklists/${encodeURIComponent(decklistId)}`;
 }
@@ -949,6 +1152,16 @@ function renderCardSuggestions() {
 }
 
 const MAX_CARD_COPIES = 3;
+const EXTRA_DECK_MONSTER_TYPES = ['Fusion Monster', 'Synchro Monster', 'XYZ Monster', 'Link Monster'];
+
+// Fusion/Synchro/XYZ/Link monsters can only legally go in the Extra Deck, so cards of
+// these types are auto-routed there regardless of the "Deck Section" dropdown -- otherwise
+// the dropdown defaults to Main Deck and it's easy to add an Extra Deck monster without
+// remembering to switch it, which silently (and incorrectly) puts the card in Main.
+function isExtraDeckMonsterType(type) {
+    const normalized = String(type || '');
+    return EXTRA_DECK_MONSTER_TYPES.some((extraType) => normalized.includes(extraType));
+}
 
 function countCardCopiesInDeck(cardName) {
     return ['main', 'extra', 'side'].reduce(
@@ -957,13 +1170,22 @@ function countCardCopiesInDeck(cardName) {
     );
 }
 
-function applyCardSuggestion(index) {
+async function applyCardSuggestion(index) {
     const suggestion = activeCardSuggestions[index];
     const input = document.getElementById('deck-card-name');
     const sectionSelect = document.getElementById('deck-card-section');
     if (!suggestion || !input) return;
 
-    const section = normalizeDeckSection(sectionSelect?.value || 'main');
+    let section = normalizeDeckSection(sectionSelect?.value || 'main');
+
+    try {
+        const detailed = await fetchDetailedCardByName(suggestion.name);
+        if (isExtraDeckMonsterType(detailed?.type)) {
+            section = 'extra';
+        }
+    } catch (error) {
+        // Unresolvable card name -- fall back to whatever the dropdown says.
+    }
 
     if (countCardCopiesInDeck(suggestion.name) >= MAX_CARD_COPIES) {
         setDeckCardFeedback(`You already have ${MAX_CARD_COPIES} copies of ${suggestion.name} in your deck.`);
@@ -1236,6 +1458,8 @@ function renderDecklistDetailLayout(decklist, bodyContent) {
         : `<button class="btn secondary" style="margin: 0;" onclick="copyDecklistShareLink('${decklist._id}')">Copy Share Link</button>`;
 
     const exportButton = `<button class="btn secondary" style="margin: 0;" onclick="exportDecklistByIdAsYdk('${decklist._id}')">Export .ydk</button>`;
+    const exportTextButton = `<button class="btn secondary" style="margin: 0;" onclick="exportDecklistByIdAsText('${decklist._id}')">Export Text</button>`;
+    const copyTextButton = `<button class="btn secondary" style="margin: 0;" onclick="copyDecklistByIdAsText('${decklist._id}')">Copy Text</button>`;
 
     return `
         <div style="max-width: 960px; margin: 0 auto; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 1.2rem;">
@@ -1256,6 +1480,8 @@ function renderDecklistDetailLayout(decklist, bodyContent) {
                 <button class="btn ${decklistDetailViewMode === 'images' ? '' : 'secondary'}" style="margin: 0;" onclick="setDecklistDetailMode('images')">Images</button>
                 ${shareButton}
                 ${exportButton}
+                ${exportTextButton}
+                ${copyTextButton}
             </div>
 
             ${bodyContent}
@@ -1328,24 +1554,8 @@ function setDecklistDetailMode(mode) {
     renderDecklistDetailContent();
 }
 
-function renderDeckBuilderSection(section) {
-    const normalized = normalizeDeckSection(section);
-    const cards = deckBuilder[normalized] || [];
-    const container = document.getElementById(`deck-builder-${normalized}`);
-    const count = document.getElementById(`deck-count-${normalized}`);
-
-    if (count) {
-        count.textContent = String(cards.length);
-    }
-
-    if (!container) return;
-
-    if (cards.length === 0) {
-        container.innerHTML = '<div class="empty-state" style="padding: 0.6rem;">No cards added yet</div>';
-        return;
-    }
-
-    // Group cards by name so duplicates show as a single row with a quantity
+// Group cards by name so duplicates show as a single row with a quantity.
+function groupDeckCards(cards) {
     const groups = [];
     const seen = new Map();
     cards.forEach((card) => {
@@ -1356,8 +1566,11 @@ function renderDeckBuilderSection(section) {
             groups.push({ name: card.name, imageUrl: card.imageUrl || '', qty: 1 });
         }
     });
+    return groups;
+}
 
-    container.innerHTML = groups.map((group) => {
+function renderDeckCardGroupsHtml(groups, normalized) {
+    return groups.map((group) => {
         const safeName = escapeHtml(JSON.stringify(group.name));
         const safeImg  = escapeHtml(JSON.stringify(group.imageUrl));
         return `
@@ -1371,6 +1584,75 @@ function renderDeckBuilderSection(section) {
             </div>
         </div>`;
     }).join('');
+}
+
+function renderDeckBuilderSection(section) {
+    const normalized = normalizeDeckSection(section);
+    const cards = deckBuilder[normalized] || [];
+    const count = document.getElementById(`deck-count-${normalized}`);
+
+    if (count) {
+        count.textContent = String(cards.length);
+    }
+
+    // Main Deck gets its own Monster/Spell/Trap sub-layout (renderMainDeckByType);
+    // Extra/Side stay as a single flat list since Extra is monster-only and Side is small.
+    if (normalized === 'main') {
+        renderMainDeckByType(cards);
+        return;
+    }
+
+    const container = document.getElementById(`deck-builder-${normalized}`);
+    if (!container) return;
+
+    if (cards.length === 0) {
+        container.innerHTML = '<div class="empty-state" style="padding: 0.6rem;">No cards added yet</div>';
+        return;
+    }
+
+    container.innerHTML = renderDeckCardGroupsHtml(groupDeckCards(cards), normalized);
+}
+
+// deckBuilder.main entries only carry {name, imageUrl} -- no card type -- so this resolves
+// each unique name through the same fetchDetailedCardByName cache the banlist validator and
+// renderDeckStats already warm, then buckets into Monsters/Spells/Traps sub-lists. Guarded by
+// a render token so a slower, older call can't clobber a newer one's output.
+let mainDeckRenderToken = 0;
+async function renderMainDeckByType(cards) {
+    const token = ++mainDeckRenderToken;
+    const buckets = { monster: [], spell: [], trap: [] };
+
+    await Promise.all(cards.map(async (card) => {
+        let type = '';
+        try {
+            const detailed = await fetchDetailedCardByName(card.name);
+            type = detailed?.type || '';
+        } catch (error) {
+            // Unresolvable card name -- fall through to the Monsters bucket as a safe default.
+        }
+
+        if (type.includes('Spell')) buckets.spell.push(card);
+        else if (type.includes('Trap')) buckets.trap.push(card);
+        else buckets.monster.push(card);
+    }));
+
+    if (token !== mainDeckRenderToken) return; // a newer render started; drop this stale one
+
+    [['monster', 'monsters'], ['spell', 'spells'], ['trap', 'traps']].forEach(([bucketKey, label]) => {
+        const container = document.getElementById(`deck-builder-main-${bucketKey}`);
+        const countEl = document.getElementById(`deck-count-main-${bucketKey}`);
+        const bucketCards = buckets[bucketKey];
+
+        if (countEl) countEl.textContent = String(bucketCards.length);
+        if (!container) return;
+
+        if (bucketCards.length === 0) {
+            container.innerHTML = `<div class="empty-state" style="padding: 0.6rem;">No ${label} added yet</div>`;
+            return;
+        }
+
+        container.innerHTML = renderDeckCardGroupsHtml(groupDeckCards(bucketCards), 'main');
+    });
 }
 
 function renderDeckBuilder() {
@@ -1457,7 +1739,7 @@ async function addCardToDeckBuilder() {
     const addButton = document.getElementById('deck-add-card-btn');
 
     const enteredName = input?.value?.trim() || '';
-    const section = normalizeDeckSection(sectionSelect?.value || 'main');
+    let section = normalizeDeckSection(sectionSelect?.value || 'main');
 
     if (!enteredName) {
         setDeckCardFeedback('Enter a card name first.');
@@ -1469,6 +1751,16 @@ async function addCardToDeckBuilder() {
 
     try {
         const card = await fetchCardByName(enteredName);
+
+        try {
+            const detailed = await fetchDetailedCardByName(card.name);
+            if (isExtraDeckMonsterType(detailed?.type)) {
+                section = 'extra';
+            }
+        } catch (typeError) {
+            // Unresolvable card type -- fall back to whatever the dropdown says.
+        }
+
         if (countCardCopiesInDeck(card.name) >= MAX_CARD_COPIES) {
             setDeckCardFeedback(`You already have ${MAX_CARD_COPIES} copies of ${card.name} in your deck.`);
             if (input) input.focus();
@@ -3784,7 +4076,7 @@ async function viewTournament(id, options = {}) {
                             const deckGame = registration.deckGame || registration.decklist?.game || '';
 
                             const deckPreview = registration.decklist
-                                ? `<details style="margin-top: 0.3rem;"><summary style="cursor: pointer; font-size: 0.8rem; color: var(--text-secondary);">View decklist</summary><div style="margin-top: 0.3rem; font-size: 0.8rem;"><pre style="white-space: pre-wrap; margin: 0; font-family: inherit;">${escapeHtml(registration.decklist.mainDeck || '')}</pre></div></details>`
+                                ? `<details style="margin-top: 0.3rem;"><summary style="cursor: pointer; font-size: 0.8rem; color: var(--text-secondary);">View decklist</summary><div style="margin-top: 0.3rem; font-size: 0.8rem;"><pre style="white-space: pre-wrap; margin: 0 0 0.4rem; font-family: inherit;">${escapeHtml(registration.decklist.mainDeck || '')}</pre><div style="display: flex; gap: 0.4rem; flex-wrap: wrap;"><button type="button" class="btn secondary" style="margin: 0; padding: 0.25rem 0.55rem; font-size: 0.75rem;" onclick="exportRegistrationDeckAsText('${tournament._id}', '${getEntityId(player)}')">Export Text</button><button type="button" class="btn secondary" style="margin: 0; padding: 0.25rem 0.55rem; font-size: 0.75rem;" onclick="copyRegistrationDeckAsText('${tournament._id}', '${getEntityId(player)}')">Copy Text</button></div></div></details>`
                                 : '';
 
                             return `<div style="font-size: 0.82rem; color: var(--text-secondary); margin-top: 0.2rem;">Decklist: ${escapeHtml(deckName)}${deckGame ? ` (${escapeHtml(deckGame)})` : ''}</div>${deckPreview}`;

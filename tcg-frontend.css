@@ -1239,3 +1239,21 @@ footer {
     font-size: 0.85rem;
     color: var(--text-secondary);
 }
+
+.deck-type-group {
+    margin-bottom: 0.65rem;
+    padding-left: 0.6rem;
+    border-left: 2px solid var(--border-color);
+}
+
+.deck-type-group h5 {
+    margin-bottom: 0.3rem;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-secondary);
+}
+
+.deck-type-group .deck-card-list {
+    max-height: 160px;
+}

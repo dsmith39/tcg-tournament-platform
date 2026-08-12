@@ -270,8 +270,23 @@
 
                         <div class="deck-builder-section">
                             <h4>Main Deck (<span id="deck-count-main">0</span>)</h4>
-                            <div id="deck-builder-main" class="deck-card-list">
-                                <div class="empty-state">No cards added yet</div>
+                            <div class="deck-type-group">
+                                <h5>Monsters (<span id="deck-count-main-monster">0</span>)</h5>
+                                <div id="deck-builder-main-monster" class="deck-card-list">
+                                    <div class="empty-state">No monsters added yet</div>
+                                </div>
+                            </div>
+                            <div class="deck-type-group">
+                                <h5>Spells (<span id="deck-count-main-spell">0</span>)</h5>
+                                <div id="deck-builder-main-spell" class="deck-card-list">
+                                    <div class="empty-state">No spells added yet</div>
+                                </div>
+                            </div>
+                            <div class="deck-type-group">
+                                <h5>Traps (<span id="deck-count-main-trap">0</span>)</h5>
+                                <div id="deck-builder-main-trap" class="deck-card-list">
+                                    <div class="empty-state">No traps added yet</div>
+                                </div>
                             </div>
                         </div>
 
@@ -305,6 +320,8 @@
                             <button type="button" class="btn secondary" style="margin: 0;" onclick="triggerYdkImport()">Import .ydk</button>
                             <button type="button" class="btn secondary" style="margin: 0;" onclick="exportCurrentDeckAsYdk()">Export .ydk</button>
                             <button type="button" class="btn secondary" style="margin: 0;" onclick="importDeckFromTextPrompt(this)">Import Text List</button>
+                            <button type="button" class="btn secondary" style="margin: 0;" onclick="exportCurrentDeckAsText()">Export Text</button>
+                            <button type="button" class="btn secondary" style="margin: 0;" onclick="copyCurrentDeckAsText()">Copy Text</button>
                         </div>
                         <input type="file" id="decklist-ydk-file" accept=".ydk,text/plain" style="display:none;">
 
