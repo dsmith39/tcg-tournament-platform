@@ -20,14 +20,6 @@ const { resetRateLimiters } = require('../server/security');
 let app;
 let dynaliteServer;
 
-// Socket behavior is not under test here; provide minimal stub to satisfy registerApi.
-function buildIoStub() {
-  return {
-    on: () => {},
-    emit: () => {}
-  };
-}
-
 async function registerUser(client, { username, email, password }) {
   // Shared helper keeps auth setup compact across test cases.
   const response = await client
@@ -59,7 +51,7 @@ test.before(async () => {
   app = express();
   // Trust proxy headers during tests so X-Forwarded-For can represent different client IPs.
   app.set('trust proxy', true);
-  registerApi(app, buildIoStub());
+  registerApi(app);
 });
 
 test.after(async () => {

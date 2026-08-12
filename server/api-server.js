@@ -2,7 +2,10 @@
  * Core API module for authentication, decklists, tournaments, and match flow.
  *
  * Architecture notes:
- * - Exports registerApi(app, io) so HTTP wiring stays in server.js.
+ * - Exports registerApi(app) so HTTP wiring stays in server.js. Live-update
+ *   broadcasts go through server/realtime.js rather than an injected `io`,
+ *   since the deployed Lambda broadcasts over a separate WebSocket API
+ *   instead of Socket.IO -- see server/realtime.js.
  * - Persistence is DynamoDB via server/dynamo.js + server/models/*.
  *   Tournament/round/match mutation logic below is storage-agnostic: it
  *   loads a whole tournament, mutates the in-memory tree, and saves it back
@@ -19,6 +22,7 @@ const usersRepo = require('./models/users');
 const decklistsRepo = require('./models/decklists');
 const tournamentsRepo = require('./models/tournaments');
 const { TournamentVersionConflictError } = tournamentsRepo;
+const { broadcastTournamentUpdate, broadcastDecklistUpdate } = require('./realtime');
 const {
   gameEnumValues,
   registerBodySchema,
@@ -43,7 +47,7 @@ const {
   matchActionLimiter
 } = require('./security');
 
-function registerApi(app, io) {
+function registerApi(app) {
   // Global middleware is intentionally kept minimal here so route handlers remain explicit.
   app.use(cors());
   app.use(express.json());
@@ -1065,36 +1069,6 @@ function registerApi(app, io) {
     }
   };
 
-  const emitTournamentUpdate = (reason, tournament) => {
-    if (!tournament) return;
-
-    const tournamentId = toIdString(tournament._id || tournament.id);
-    io.emit('tournaments:updated', {
-      reason,
-      tournamentId,
-      name: tournament.name || 'Tournament',
-      status: tournament.status || 'registration'
-    });
-  };
-
-  const emitDecklistUpdate = (reason, decklist) => {
-    if (!decklist) return;
-
-    const decklistId = toIdString(decklist._id || decklist.id);
-    const ownerId = toIdString(decklist.owner?._id || decklist.owner);
-    io.emit('decklists:updated', {
-      reason,
-      decklistId,
-      ownerId,
-      isPublic: decklist.isPublic !== false,
-      name: decklist.name || 'Decklist'
-    });
-  };
-
-  io.on('connection', (socket) => {
-    socket.emit('socket:ready', { connectedAt: Date.now() });
-  });
-
   // Routes
   // Register creates a new user and immediately issues cookie-based session tokens.
   app.post('/api/auth/register', authLimiter, validateRequest({ body: registerBodySchema }), async (req, res) => {
@@ -1359,7 +1333,7 @@ function registerApi(app, io) {
         notes: typeof notes === 'string' ? notes.trim() : ''
       });
 
-      emitDecklistUpdate('created', decklist);
+      broadcastDecklistUpdate('created', decklist);
       res.status(201).json(decklist);
     } catch (error) {
       res.status(400).json({ error: error.message });
@@ -1402,7 +1376,7 @@ function registerApi(app, io) {
       }
 
       await decklist.save();
-      emitDecklistUpdate('updated', decklist);
+      broadcastDecklistUpdate('updated', decklist);
       res.json(decklist);
     } catch (error) {
       res.status(400).json({ error: error.message });
@@ -1415,7 +1389,7 @@ function registerApi(app, io) {
       const { id } = req.validated.params;
       const decklist = await decklistsRepo.deleteByIdForOwner(id, req.user.id);
       if (!decklist) return res.status(404).json({ error: 'Decklist not found' });
-      emitDecklistUpdate('deleted', decklist);
+      broadcastDecklistUpdate('deleted', decklist);
       res.json({ message: 'Decklist deleted' });
     } catch (error) {
       res.status(400).json({ error: 'Invalid decklist id' });
@@ -1441,7 +1415,7 @@ function registerApi(app, io) {
       });
 
       const populated = await getTournamentByIdWithDetails(tournament._id);
-      emitTournamentUpdate('created', populated);
+      broadcastTournamentUpdate('created', populated);
       res.status(201).json(buildTournamentResponse(populated));
     } catch (error) {
       res.status(400).json({ error: error.message });
@@ -1473,7 +1447,7 @@ function registerApi(app, io) {
       }
 
       await tournamentsRepo.deleteById(id);
-      emitTournamentUpdate('deleted', tournament);
+      broadcastTournamentUpdate('deleted', tournament);
       res.json({ message: 'Tournament deleted' });
     } catch (error) {
       sendServerError(res, error);
@@ -1524,7 +1498,7 @@ function registerApi(app, io) {
       await tournament.save();
 
       const populated = await getTournamentByIdWithDetails(tournament._id);
-      emitTournamentUpdate('joined', populated);
+      broadcastTournamentUpdate('joined', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
       sendServerError(res, error);
@@ -1558,7 +1532,7 @@ function registerApi(app, io) {
       await tournament.save();
 
       const populated = await getTournamentByIdWithDetails(tournament._id);
-      emitTournamentUpdate('left', populated);
+      broadcastTournamentUpdate('left', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
       sendServerError(res, error);
@@ -1600,7 +1574,7 @@ function registerApi(app, io) {
       await tournament.save();
 
       const populated = await getTournamentByIdWithDetails(tournament._id);
-      emitTournamentUpdate('started', populated);
+      broadcastTournamentUpdate('started', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
       sendServerError(res, error);
@@ -1679,7 +1653,7 @@ function registerApi(app, io) {
       await tournament.save();
 
       const populated = await getTournamentByIdWithDetails(tournament._id);
-      emitTournamentUpdate('match-reported', populated);
+      broadcastTournamentUpdate('match-reported', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
       sendServerError(res, error);
@@ -1753,7 +1727,7 @@ function registerApi(app, io) {
       await tournament.save();
 
       const populated = await getTournamentByIdWithDetails(tournament._id);
-      emitTournamentUpdate('match-confirmed', populated);
+      broadcastTournamentUpdate('match-confirmed', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
       sendServerError(res, error);
@@ -1823,7 +1797,7 @@ function registerApi(app, io) {
       await tournament.save();
 
       const populated = await getTournamentByIdWithDetails(tournament._id);
-      emitTournamentUpdate('match-disputed', populated);
+      broadcastTournamentUpdate('match-disputed', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
       sendServerError(res, error);
@@ -1901,7 +1875,7 @@ function registerApi(app, io) {
       await tournament.save();
 
       const populated = await getTournamentByIdWithDetails(tournament._id);
-      emitTournamentUpdate('match-resolved', populated);
+      broadcastTournamentUpdate('match-resolved', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
       sendServerError(res, error);
@@ -1978,7 +1952,7 @@ function registerApi(app, io) {
       await tournament.save();
 
       const populated = await getTournamentByIdWithDetails(tournament._id);
-      emitTournamentUpdate('match-reopened', populated);
+      broadcastTournamentUpdate('match-reopened', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
       sendServerError(res, error);
@@ -2031,7 +2005,7 @@ function registerApi(app, io) {
       await tournament.save();
 
       const populated = await getTournamentByIdWithDetails(tournament._id);
-      emitTournamentUpdate('round-started', populated);
+      broadcastTournamentUpdate('round-started', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
       sendServerError(res, error);
@@ -2073,7 +2047,7 @@ function registerApi(app, io) {
       await tournament.save();
 
       const populated = await getTournamentByIdWithDetails(tournament._id);
-      emitTournamentUpdate('round-locked', populated);
+      broadcastTournamentUpdate('round-locked', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
       sendServerError(res, error);
@@ -2132,7 +2106,7 @@ function registerApi(app, io) {
         await tournament.save();
 
         const completed = await getTournamentByIdWithDetails(tournament._id);
-        emitTournamentUpdate('completed', completed);
+        broadcastTournamentUpdate('completed', completed);
         return res.json(buildTournamentResponse(completed));
       }
 
@@ -2145,7 +2119,7 @@ function registerApi(app, io) {
       await tournament.save();
 
       const populated = await getTournamentByIdWithDetails(tournament._id);
-      emitTournamentUpdate('round-generated', populated);
+      broadcastTournamentUpdate('round-generated', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
       sendServerError(res, error);
@@ -2208,7 +2182,7 @@ function registerApi(app, io) {
       await tournament.save();
 
       const populated = await getTournamentByIdWithDetails(tournament._id);
-      emitTournamentUpdate('completed', populated);
+      broadcastTournamentUpdate('completed', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
       sendServerError(res, error);
@@ -2243,7 +2217,7 @@ function registerApi(app, io) {
       await tournament.save();
 
       const populated = await getTournamentByIdWithDetails(tournament._id);
-      emitTournamentUpdate('player-checkedin', populated);
+      broadcastTournamentUpdate('player-checkedin', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
       sendServerError(res, error);
@@ -2339,7 +2313,7 @@ function registerApi(app, io) {
       await tournament.save();
 
       const populated = await getTournamentByIdWithDetails(tournament._id);
-      emitTournamentUpdate('top-cut-started', populated);
+      broadcastTournamentUpdate('top-cut-started', populated);
       res.json(buildTournamentResponse(populated));
     } catch (error) {
       sendServerError(res, error);

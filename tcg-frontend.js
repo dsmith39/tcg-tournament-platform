@@ -552,10 +552,98 @@ function describeDecklistSocketEvent(event) {
     return labels[event?.reason] || 'Decklist updated';
 }
 
-function initializeRealtimeSocket() {
-    if (typeof window.io !== 'function' || liveSocket) {
-        return;
+async function handleTournamentsUpdatedEvent(event) {
+    if (document.getElementById('dashboard').classList.contains('active') && currentUser) {
+        await renderTournaments({ suppressLoading: true });
     }
+
+    if (document.getElementById('landing').classList.contains('active') && !currentUser) {
+        await renderLandingTournaments({ suppressLoading: true });
+    }
+
+    if (currentTournamentDetailId && String(currentTournamentDetailId) === String(event.tournamentId)) {
+        await viewTournament(currentTournamentDetailId, {
+            refresh: true,
+            suppressLoading: true
+        });
+    }
+
+    if (document.getElementById('user-profile').classList.contains('active') && currentProfileUserId) {
+        await viewUserProfile(currentProfileUserId, {
+            refresh: true,
+            suppressLoading: true
+        });
+    }
+
+    addNotification(`${describeTournamentSocketEvent(event)}: ${event.name || 'Tournament'}`, 'info', true);
+}
+
+async function handleDecklistsUpdatedEvent(event) {
+    if (document.getElementById('decklists').classList.contains('active') && currentUser) {
+        await renderDecklists({ suppressLoading: true });
+    }
+
+    if (document.getElementById('landing').classList.contains('active')) {
+        await renderLandingDecklists({ suppressLoading: true });
+    }
+
+    if (currentDecklistDetail && String(getEntityId(currentDecklistDetail)) === String(event.decklistId)) {
+        await viewDecklist(event.decklistId, {
+            refresh: true,
+            suppressLoading: true
+        });
+    }
+
+    addNotification(`${describeDecklistSocketEvent(event)}: ${event.name || 'Decklist'}`, 'info', true);
+}
+
+// Deployed environments (window.TCG_CONFIG present, set by config.js) talk to
+// an API Gateway WebSocket API over a plain WebSocket. Local dev (no
+// config.js) keeps using the Socket.IO client against the same-origin
+// Express server, matching how it's always run locally.
+function initializeRealtimeSocket() {
+    if (liveSocket) return;
+
+    if (window.TCG_CONFIG && window.TCG_CONFIG.wsUrl) {
+        initializeRawWebSocket(window.TCG_CONFIG.wsUrl);
+    } else {
+        initializeSocketIoClient();
+    }
+}
+
+function initializeRawWebSocket(wsUrl) {
+    liveSocket = new WebSocket(wsUrl);
+
+    liveSocket.addEventListener('open', () => {
+        socketConnected = true;
+    });
+
+    liveSocket.addEventListener('close', () => {
+        socketConnected = false;
+    });
+
+    liveSocket.addEventListener('error', () => {
+        socketConnected = false;
+    });
+
+    liveSocket.addEventListener('message', (message) => {
+        let event;
+        try {
+            event = JSON.parse(message.data);
+        } catch (error) {
+            return;
+        }
+
+        if (event.type === 'tournaments:updated') {
+            handleTournamentsUpdatedEvent(event);
+        } else if (event.type === 'decklists:updated') {
+            handleDecklistsUpdatedEvent(event);
+        }
+    });
+}
+
+function initializeSocketIoClient() {
+    if (typeof window.io !== 'function') return;
 
     liveSocket = window.io(undefined, {
         transports: ['websocket', 'polling']
@@ -573,50 +661,8 @@ function initializeRealtimeSocket() {
         socketConnected = true;
     });
 
-    liveSocket.on('tournaments:updated', async (event) => {
-        if (document.getElementById('dashboard').classList.contains('active') && currentUser) {
-            await renderTournaments({ suppressLoading: true });
-        }
-
-        if (document.getElementById('landing').classList.contains('active') && !currentUser) {
-            await renderLandingTournaments({ suppressLoading: true });
-        }
-
-        if (currentTournamentDetailId && String(currentTournamentDetailId) === String(event.tournamentId)) {
-            await viewTournament(currentTournamentDetailId, {
-                refresh: true,
-                suppressLoading: true
-            });
-        }
-
-        if (document.getElementById('user-profile').classList.contains('active') && currentProfileUserId) {
-            await viewUserProfile(currentProfileUserId, {
-                refresh: true,
-                suppressLoading: true
-            });
-        }
-
-        addNotification(`${describeTournamentSocketEvent(event)}: ${event.name || 'Tournament'}`, 'info', true);
-    });
-
-    liveSocket.on('decklists:updated', async (event) => {
-        if (document.getElementById('decklists').classList.contains('active') && currentUser) {
-            await renderDecklists({ suppressLoading: true });
-        }
-
-        if (document.getElementById('landing').classList.contains('active')) {
-            await renderLandingDecklists({ suppressLoading: true });
-        }
-
-        if (currentDecklistDetail && String(getEntityId(currentDecklistDetail)) === String(event.decklistId)) {
-            await viewDecklist(event.decklistId, {
-                refresh: true,
-                suppressLoading: true
-            });
-        }
-
-        addNotification(`${describeDecklistSocketEvent(event)}: ${event.name || 'Decklist'}`, 'info', true);
-    });
+    liveSocket.on('tournaments:updated', handleTournamentsUpdatedEvent);
+    liveSocket.on('decklists:updated', handleDecklistsUpdatedEvent);
 }
 
 function createEmptyDeckBuilder() {
