@@ -1,11 +1,18 @@
 /*
  * SQLite connection + schema bootstrap for the local Yu-Gi-Oh card catalog.
  *
- * Replaces ygo-database's MongoDB/Mongoose connection. This is a separate
- * database file (card-database/data/cards.db) from the main app database
- * (server/data/app.db) because it has a completely different write pattern:
+ * This is a separate database file (card-database/data/cards.db) from the
+ * main app database because it has a completely different write pattern:
  * bulk-overwritten by the maintenance scripts (import/download), never
  * written to by live user request traffic.
+ *
+ * Deployed, cards.db ships read-only inside the Lambda's deployment zip
+ * (see template.yaml/deploy script) -- Lambda's code directory is a
+ * read-only filesystem, so CARD_DB_READONLY=true (set only in that Lambda's
+ * environment) skips the WAL pragma and schema exec below, both of which
+ * are themselves write operations against the db file and would otherwise
+ * throw EROFS on cold start. Local dev never sets this flag, so the
+ * writable-file behavior (WAL mode, schema bootstrap) is unchanged there.
  */
 const path = require('path');
 const fs = require('fs');
@@ -45,7 +52,7 @@ let dbInstance = null;
 function resolveDbPath() {
   if (process.env.NODE_ENV === 'test') return ':memory:';
   const dataDir = path.resolve(__dirname, '..', 'data');
-  if (!fs.existsSync(dataDir)) {
+  if (process.env.CARD_DB_READONLY !== 'true' && !fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
   }
   return path.join(dataDir, 'cards.db');
@@ -53,7 +60,10 @@ function resolveDbPath() {
 
 function openDatabase() {
   const dbPath = resolveDbPath();
-  const instance = new DatabaseSync(dbPath);
+  const instance = new DatabaseSync(dbPath, { readOnly: process.env.CARD_DB_READONLY === 'true' });
+  if (process.env.CARD_DB_READONLY === 'true') {
+    return instance;
+  }
   if (dbPath !== ':memory:') {
     instance.exec('PRAGMA journal_mode = WAL;');
   }

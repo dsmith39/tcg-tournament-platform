@@ -24,11 +24,21 @@ function toSafeInt(value, fallback) {
   return Math.max(0, Math.floor(parsed));
 }
 
-// Card image URLs always point back at this router's own /card-image/:id route
-// rather than the raw ygoprodeck.com URLs stored at import time, so the frontend
-// never talks to the live API for images either.
+// Card image URLs never point at the raw ygoprodeck.com URLs stored at
+// import time, so the frontend never talks to the live API for images
+// either. When CARD_IMAGE_BASE_URL is set (deployed -- points at the
+// CloudFront distribution in front of the card images S3 bucket), URLs go
+// straight there using the same flat {cardId}[.jpg|_small.jpg|_cropped.jpg]
+// layout download_card_images.js already writes locally. Local dev (no
+// CARD_IMAGE_BASE_URL) keeps using this router's own /card-image/:id route.
 function buildLocalImageUrl(req, cardId, size = 'full') {
   if (!cardId) return '';
+  const suffix = size === 'small' ? '_small' : size === 'cropped' ? '_cropped' : '';
+
+  if (process.env.CARD_IMAGE_BASE_URL) {
+    return `${process.env.CARD_IMAGE_BASE_URL.replace(/\/$/, '')}/${encodeURIComponent(String(cardId))}${suffix}.jpg`;
+  }
+
   const baseUrl = `${req.protocol}://${req.get('host')}`;
   const url = new URL(`/api/v7/card-image/${encodeURIComponent(String(cardId))}`, baseUrl);
   if (size !== 'full') {
