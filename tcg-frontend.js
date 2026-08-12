@@ -4506,7 +4506,10 @@ document.getElementById('tournament-form').addEventListener('submit', async (e) 
         game: document.getElementById('tournament-game').value,
         format: document.getElementById('tournament-format').value,
         maxPlayers: parseInt(document.getElementById('tournament-players').value),
-        description: document.getElementById('tournament-desc').value.trim(),
+        // No #tournament-desc field exists in the create form -- description is
+        // optional server-side (createTournamentBodySchema defaults it to ''),
+        // so there's nothing to read here.
+        description: '',
         roundTimerMinutes: parseInt(document.getElementById('tournament-timer')?.value || '0') || 0,
         topCutSize: parseInt(document.getElementById('tournament-topcut')?.value || '0') || 0
     };
