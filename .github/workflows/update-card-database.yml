@@ -1,0 +1,80 @@
+name: Update Card Database
+
+# Manually-triggered refresh of the local card catalog (card-database/data/cards.db)
+# from the live YGOPRODeck API, per CLAUDE.md: this is meant to be run by the
+# operator occasionally, never automatically -- hence workflow_dispatch only,
+# no schedule and no push trigger.
+#
+# This only refreshes the copy staged in S3 for the next deploy to pick up --
+# it does NOT redeploy the live Lambda by itself. Run the "Deploy to AWS"
+# workflow (or push a commit to main) afterwards to actually ship the new
+# catalog to theduelclub.com.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: update-card-database
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  update-card-database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Initialize card database schema
+        run: npm run cards:init-db
+
+      - name: Import catalog from YGOPRODeck
+        run: npm run cards:import
+
+      - name: Flatten cards.db out of WAL mode
+        run: |
+          set -euo pipefail
+          node card-database/src/flatten_for_deploy.js card-database/data/cards.db
+
+      - name: Resolve AWS account id and deploy bucket
+        id: account
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "deploy_bucket=theduelclub-deploy-$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Upload cards.db to S3
+        run: |
+          aws s3 cp card-database/data/cards.db \
+            "s3://${{ steps.account.outputs.deploy_bucket }}/card-database/cards.db" \
+            --region "${{ env.AWS_REGION }}"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Card database updated"
+            echo "Uploaded to \`s3://${{ steps.account.outputs.deploy_bucket }}/card-database/cards.db\`."
+            echo ""
+            echo "This does **not** redeploy the live site by itself -- run the \"Deploy to AWS\" workflow (or push to main) to ship this catalog to production."
+          } >> "$GITHUB_STEP_SUMMARY"
