@@ -1,0 +1,192 @@
+name: Deploy to AWS
+
+# Deploys theduelclub.com: packages the Lambda app + frontend and pushes them
+# via the same CloudFormation stack (template.yaml) that deploy/aws/deploy.ps1
+# deploys locally. Runs only after the CI workflow has passed on main, so a
+# broken build never reaches production.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  STACK_NAME: theduelclub
+
+jobs:
+  deploy:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Require JWT secret
+        run: |
+          if [ -z "${{ secrets.JWT_SECRET }}" ]; then
+            echo "::error::The JWT_SECRET repository secret is not set. Add it under Settings > Secrets and variables > Actions before deploying."
+            exit 1
+          fi
+
+      - name: Resolve AWS account id and deploy bucket
+        id: account
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "account_id=$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
+          echo "deploy_bucket=theduelclub-deploy-$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
+
+      # card-database/data/cards.db is gitignored (~large SQLite catalog) and
+      # is not rebuilt on every deploy -- it's refreshed manually and uploaded
+      # once via:
+      #   aws s3 cp card-database/data/cards.db \
+      #     s3://theduelclub-deploy-<account-id>/card-database/cards.db
+      - name: Download card catalog from S3
+        run: |
+          set -euo pipefail
+          mkdir -p card-database/data
+          SRC="s3://${{ steps.account.outputs.deploy_bucket }}/card-database/cards.db"
+          if ! aws s3 cp "$SRC" card-database/data/cards.db; then
+            echo "::error::Could not download $SRC. Build the catalog once locally (npm run cards:init-db && npm run cards:import) and upload it with: aws s3 cp card-database/data/cards.db $SRC"
+            exit 1
+          fi
+
+      - name: Build Lambda deployment package
+        run: |
+          set -euo pipefail
+          STAGING_DIR="$GITHUB_WORKSPACE/build/lambda-src"
+          rm -rf "$STAGING_DIR"
+          mkdir -p "$STAGING_DIR"
+
+          cp server.js run.sh package.json package-lock.json "$STAGING_DIR/"
+          cp -r server "$STAGING_DIR/server"
+          # server/ws-handler is a separate Lambda packaged from its own
+          # CodeUri in template.yaml -- not part of the main app zip.
+          rm -rf "$STAGING_DIR/server/ws-handler"
+
+          mkdir -p "$STAGING_DIR/card-database/src" "$STAGING_DIR/card-database/data"
+          cp -r card-database/src/. "$STAGING_DIR/card-database/src/"
+          cp card-database/data/cards.db "$STAGING_DIR/card-database/data/cards.db"
+          for suffix in -wal -shm; do
+            if [ -f "card-database/data/cards.db$suffix" ]; then
+              cp "card-database/data/cards.db$suffix" "$STAGING_DIR/card-database/data/cards.db$suffix"
+            fi
+          done
+
+          echo "Flattening staged cards.db out of WAL mode (required for read-only access on Lambda)..."
+          node card-database/src/flatten_for_deploy.js "$STAGING_DIR/card-database/data/cards.db"
+
+          echo "Installing production dependencies into the staged package..."
+          (cd "$STAGING_DIR" && npm ci --omit=dev)
+
+          # Lambda Web Adapter invokes this directly -- the executable bit
+          # must survive into the zip regardless of what's committed in git.
+          chmod +x "$STAGING_DIR/run.sh"
+
+          echo "Zipping Lambda package..."
+          (cd "$STAGING_DIR" && zip -rq "$GITHUB_WORKSPACE/build/function.zip" .)
+
+      - name: Package CloudFormation template
+        run: |
+          aws cloudformation package \
+            --template-file template.yaml \
+            --s3-bucket "${{ steps.account.outputs.deploy_bucket }}" \
+            --output-template-file packaged.yaml \
+            --region "${{ env.AWS_REGION }}"
+
+      - name: Deploy CloudFormation stack
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
+        run: |
+          set -euo pipefail
+          PARAM_OVERRIDES=("JwtSecret=$JWT_SECRET")
+          if [ -n "$ADMIN_EMAILS" ]; then
+            PARAM_OVERRIDES+=("AdminEmails=$ADMIN_EMAILS")
+          fi
+
+          aws cloudformation deploy \
+            --template-file packaged.yaml \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
+            --region "${{ env.AWS_REGION }}" \
+            --parameter-overrides "${PARAM_OVERRIDES[@]}"
+
+      - name: Read stack outputs
+        id: stack_outputs
+        run: |
+          set -euo pipefail
+          aws cloudformation describe-stacks \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --query 'Stacks[0].Outputs' --output json \
+            | jq -r '.[] | "\(.OutputKey)=\(.OutputValue)"' >> "$GITHUB_OUTPUT"
+
+      - name: Stage frontend
+        run: |
+          set -euo pipefail
+          rm -rf build/frontend
+          mkdir -p build/frontend
+          cp tcg-frontend-updated.html build/frontend/index.html
+          cp tcg-frontend.css build/frontend/
+          cp tcg-frontend.js build/frontend/
+
+          cat > build/frontend/config.js <<EOF
+          window.TCG_CONFIG = {
+            apiBaseUrl: 'https://api.theduelclub.com',
+            wsUrl: 'wss://ws.theduelclub.com',
+            cardImageBaseUrl: '${{ steps.stack_outputs.outputs.CdnUrl }}'
+          };
+          EOF
+
+      - name: Sync frontend to S3
+        run: |
+          aws s3 sync build/frontend "s3://${{ steps.stack_outputs.outputs.FrontendBucketName }}" \
+            --delete --region "${{ env.AWS_REGION }}"
+
+      - name: Invalidate frontend CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.stack_outputs.outputs.FrontendDistributionId }}" \
+            --paths '/*'
+
+      # Card images (card-database/card-images/, ~4.6GB) are not synced here --
+      # they rarely change and deploy.ps1 treats syncing them as an explicit,
+      # opt-in step (-SyncCardImages) for the same reason. Run that manually
+      # from a machine with the local image mirror when the catalog changes:
+      #   aws s3 sync card-database/card-images s3://<CardImagesBucketName> \
+      #     --cache-control 'public, max-age=31536000, immutable'
+
+      - name: Summary
+        run: |
+          {
+            echo "### Deploy complete"
+            echo "- Site: ${{ steps.stack_outputs.outputs.SiteUrl }}"
+            echo "- API: ${{ steps.stack_outputs.outputs.ApiEndpoint }}"
+            echo "- WebSocket: ${{ steps.stack_outputs.outputs.WsEndpoint }}"
+            echo "- CDN: ${{ steps.stack_outputs.outputs.CdnUrl }}"
+          } >> "$GITHUB_STEP_SUMMARY"
