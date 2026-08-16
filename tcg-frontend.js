@@ -3041,9 +3041,8 @@ async function renderDecklists(options = {}) {
             immediate: true,
             message: 'Loading decklists...'
         });
+        container.innerHTML = '<div class="empty-state">Loading decklists...</div>';
     }
-
-    container.innerHTML = '<div class="empty-state">Loading decklists...</div>';
 
     try {
         await loadMyDecklists(options);
