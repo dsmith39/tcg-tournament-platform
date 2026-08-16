@@ -1211,15 +1211,18 @@ function renderCardSuggestions() {
 }
 
 const MAX_CARD_COPIES = 3;
-const EXTRA_DECK_MONSTER_TYPES = ['Fusion Monster', 'Synchro Monster', 'XYZ Monster', 'Link Monster'];
+const EXTRA_DECK_FRAME_TYPES = ['fusion', 'synchro', 'xyz', 'link'];
 
 // Fusion/Synchro/XYZ/Link monsters can only legally go in the Extra Deck, so cards of
 // these types are auto-routed there regardless of the "Deck Section" dropdown -- otherwise
 // the dropdown defaults to Main Deck and it's easy to add an Extra Deck monster without
 // remembering to switch it, which silently (and incorrectly) puts the card in Main.
-function isExtraDeckMonsterType(type) {
-    const normalized = String(type || '');
-    return EXTRA_DECK_MONSTER_TYPES.some((extraType) => normalized.includes(extraType));
+// Keyed on frameType (e.g. "synchro", "synchro_pendulum"), not the free-text "type" string --
+// variants like "Synchro Tuner Monster" or "XYZ Pendulum Effect Monster" insert extra words
+// that break a "Synchro Monster"/"XYZ Monster" substring match.
+function isExtraDeckMonsterType(frameType) {
+    const normalized = String(frameType || '').toLowerCase();
+    return EXTRA_DECK_FRAME_TYPES.some((extraFrame) => normalized.startsWith(extraFrame));
 }
 
 function countCardCopiesInDeck(cardName) {
@@ -1239,7 +1242,7 @@ async function applyCardSuggestion(index) {
 
     try {
         const detailed = await fetchDetailedCardByName(suggestion.name);
-        if (isExtraDeckMonsterType(detailed?.type)) {
+        if (isExtraDeckMonsterType(detailed?.frameType)) {
             section = 'extra';
         }
     } catch (error) {
@@ -1813,7 +1816,7 @@ async function addCardToDeckBuilder() {
 
         try {
             const detailed = await fetchDetailedCardByName(card.name);
-            if (isExtraDeckMonsterType(detailed?.type)) {
+            if (isExtraDeckMonsterType(detailed?.frameType)) {
                 section = 'extra';
             }
         } catch (typeError) {
