@@ -2600,7 +2600,7 @@ async function logout() {
 }
 
 function hidePrivateNav() {
-    document.querySelectorAll('#nav-menu button, .user-info').forEach((el) => {
+    document.querySelectorAll('#nav-menu button:not(.public-nav-btn), .user-info').forEach((el) => {
         el.style.display = 'none';
     });
 }
@@ -4927,6 +4927,13 @@ if (deckCardNameInput) {
 document.getElementById('hamburger-menu').addEventListener('click', () => {
     document.getElementById('nav-menu').classList.toggle('mobile-open');
     document.getElementById('hamburger-menu').classList.toggle('active');
+});
+
+document.getElementById('nav-menu').addEventListener('click', (event) => {
+    if (event.target.closest('button, a')) {
+        document.getElementById('nav-menu').classList.remove('mobile-open');
+        document.getElementById('hamburger-menu').classList.remove('active');
+    }
 });
 
 document.addEventListener('click', (event) => {

@@ -1130,9 +1130,10 @@ footer {
 }
 
 .card-name-label {
-    font-size: 0.75rem;
+    font-size: 0.8rem;
     padding: 0.4rem;
-    color: var(--text-secondary);
+    color: var(--text-primary);
+    font-weight: 500;
 }
 
 .card-lookup-detail {
