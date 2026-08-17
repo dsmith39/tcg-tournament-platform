@@ -1,0 +1,104 @@
+name: Sync Card Images
+
+# Manually-triggered sync of card art (card-database/card-images/, ~4.6GB) to
+# the CDN's S3 bucket. Kept separate from both the card-database update and
+# the main deploy workflow -- deploy/aws/deploy.ps1 treats this the same way
+# (-SyncCardImages is opt-in) since images rarely change and take a long
+# time to download/upload.
+#
+# Downloads are resumable: download_card_images.js skips files that already
+# exist locally, so re-running this workflow after a timeout picks up where
+# it left off rather than starting over.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: sync-card-images
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  STACK_NAME: theduelclub
+
+jobs:
+  sync-card-images:
+    runs-on: ubuntu-latest
+    # Downloading/uploading ~4.6GB of images can take a while; stay under
+    # GitHub-hosted runners' 360-minute hard cap. Safe to just re-run this
+    # workflow if it hits the timeout -- see the note above about resuming.
+    timeout-minutes: 340
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve AWS account id and deploy bucket
+        id: account
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "deploy_bucket=theduelclub-deploy-$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
+
+      # Uses whatever catalog the "Update Card Database" workflow last staged
+      # in S3, rather than re-importing from YGOPRODeck -- keeps these two
+      # workflows independent, same as deploy.ps1/-SyncCardImages assumes
+      # cards.db already exists locally.
+      - name: Download card catalog from S3
+        run: |
+          set -euo pipefail
+          mkdir -p card-database/data
+          SRC="s3://${{ steps.account.outputs.deploy_bucket }}/card-database/cards.db"
+          if ! aws s3 cp "$SRC" card-database/data/cards.db; then
+            echo "::error::Could not download $SRC. Run the \"Update Card Database\" workflow first."
+            exit 1
+          fi
+
+      - name: Read stack outputs
+        id: stack_outputs
+        run: |
+          set -euo pipefail
+          aws cloudformation describe-stacks \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --query 'Stacks[0].Outputs' --output json \
+            | jq -r '.[] | "\(.OutputKey)=\(.OutputValue)"' >> "$GITHUB_OUTPUT"
+
+      - name: Download card images
+        run: npm run cards:download-images
+
+      - name: Sync card images to S3
+        run: |
+          aws s3 sync card-database/card-images "s3://${{ steps.stack_outputs.outputs.CardImagesBucketName }}" \
+            --cache-control 'public, max-age=31536000, immutable' \
+            --only-show-errors --region "${{ env.AWS_REGION }}"
+
+      - name: Invalidate CDN CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.stack_outputs.outputs.CdnDistributionId }}" \
+            --paths '/*'
+
+      - name: Summary
+        run: |
+          {
+            echo "### Card images synced"
+            echo "Synced to \`s3://${{ steps.stack_outputs.outputs.CardImagesBucketName }}\` and invalidated the CDN cache."
+          } >> "$GITHUB_STEP_SUMMARY"
