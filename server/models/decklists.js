@@ -107,7 +107,10 @@ async function findByOwner(ownerId) {
   const { Items } = await getClient().send(new QueryCommand({
     TableName: TABLE,
     IndexName: 'owner-index',
-    KeyConditionExpression: 'owner = :owner',
+    // "owner" is a DynamoDB reserved keyword, so it must be aliased rather
+    // than used directly in the KeyConditionExpression.
+    KeyConditionExpression: '#owner = :owner',
+    ExpressionAttributeNames: { '#owner': 'owner' },
     ExpressionAttributeValues: { ':owner': ownerId },
     ScanIndexForward: false
   }));
