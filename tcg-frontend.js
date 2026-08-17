@@ -1466,13 +1466,85 @@ function groupDeckCardsForDisplay(cards) {
     return Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function renderDecklistTextSection(title, deckText) {
+// Renders one grouped-card row, e.g. "3x Blue-Eyes White Dragon".
+function renderDecklistTextCardRows(groupedCards) {
+    return groupedCards.map((card) => `
+        <div class="decklist-text-row">
+            <span class="decklist-text-qty">${card.quantity}x</span>
+            <span class="decklist-text-name">${escapeHtml(card.name)}</span>
+        </div>
+    `).join('');
+}
+
+function renderDecklistTextSubgroup(title, groupedCards) {
+    if (!groupedCards || groupedCards.length === 0) return '';
+    const total = groupedCards.reduce((sum, card) => sum + card.quantity, 0);
+
+    return `
+        <div class="decklist-text-subgroup">
+            <h4>${escapeHtml(title)} (${total})</h4>
+            <div class="decklist-text-list">${renderDecklistTextCardRows(groupedCards)}</div>
+        </div>
+    `;
+}
+
+// mainDeck/extraDeck/sideDeck are stored as one name per line, one line per
+// copy (see serializeDeckSection) -- ungrouped and unsorted. This dedups
+// duplicate lines into a single row with a quantity, alphabetized.
+function groupDeckTextForDisplay(deckText) {
+    return groupDeckCardsForDisplay(parseDeckTextToNames(deckText).map((name) => ({ name })));
+}
+
+// deckBuilder/decklist text entries don't carry card type, so the Main Deck's
+// Monster/Spell/Trap split needs a lookup per unique name -- same
+// fetchDetailedCardByName cache the banlist validator and deck stats warm.
+async function groupMainDeckByType(deckText) {
+    const grouped = groupDeckTextForDisplay(deckText);
+    const buckets = { monster: [], spell: [], trap: [] };
+
+    await Promise.all(grouped.map(async (card) => {
+        let type = '';
+        try {
+            const detailed = await fetchDetailedCardByName(card.name);
+            type = detailed?.type || '';
+        } catch (error) {
+            // Unresolvable card name -- fall through to Monsters as a safe default.
+        }
+
+        if (type.includes('Spell')) buckets.spell.push(card);
+        else if (type.includes('Trap')) buckets.trap.push(card);
+        else buckets.monster.push(card);
+    }));
+
+    return buckets;
+}
+
+async function renderDecklistMainDeckTextSection(deckText) {
     if (!deckText) return '';
+
+    const buckets = await groupMainDeckByType(deckText);
+    const total = parseDeckTextToNames(deckText).length;
 
     return `
         <div style="margin-bottom: 1rem;">
-            <h3 style="margin-bottom: 0.35rem;">${title}</h3>
-            <pre style="white-space: pre-wrap; margin: 0; font-family: inherit; background: var(--light-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.75rem;">${escapeHtml(deckText)}</pre>
+            <h3 style="margin-bottom: 0.4rem;">Main Deck (${total})</h3>
+            ${renderDecklistTextSubgroup('Monsters', buckets.monster)}
+            ${renderDecklistTextSubgroup('Spells', buckets.spell)}
+            ${renderDecklistTextSubgroup('Traps', buckets.trap)}
+        </div>
+    `;
+}
+
+function renderDecklistFlatTextSection(title, deckText) {
+    if (!deckText) return '';
+
+    const grouped = groupDeckTextForDisplay(deckText);
+    const total = grouped.reduce((sum, card) => sum + card.quantity, 0);
+
+    return `
+        <div style="margin-bottom: 1rem;">
+            <h3 style="margin-bottom: 0.4rem;">${title} (${total})</h3>
+            <div class="decklist-text-list">${renderDecklistTextCardRows(grouped)}</div>
         </div>
     `;
 }
@@ -1600,10 +1672,21 @@ async function renderDecklistDetailContent() {
         return;
     }
 
+    container.innerHTML = renderDecklistDetailLayout(
+        decklist,
+        '<div class="empty-state" style="padding: 1rem 0;">Loading decklist...</div>'
+    );
+
+    const mainDeckSection = await renderDecklistMainDeckTextSection(decklist.mainDeck || '');
+
+    if (!currentDecklistDetail || getEntityId(currentDecklistDetail) !== decklistId || decklistDetailViewMode !== 'text') {
+        return;
+    }
+
     const body = `
-        ${renderDecklistTextSection('Main Deck', decklist.mainDeck || '')}
-        ${renderDecklistTextSection('Extra Deck', decklist.extraDeck || '')}
-        ${renderDecklistTextSection('Side Deck', decklist.sideDeck || '')}
+        ${mainDeckSection}
+        ${renderDecklistFlatTextSection('Extra Deck', decklist.extraDeck || '')}
+        ${renderDecklistFlatTextSection('Side Deck', decklist.sideDeck || '')}
         ${renderDecklistNotesSection(decklist.notes)}
     `;
 
