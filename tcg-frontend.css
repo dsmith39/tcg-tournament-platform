@@ -753,6 +753,56 @@ p {
     font-weight: 700;
 }
 
+.decklist-text-subgroup {
+    margin-bottom: 0.75rem;
+}
+
+.decklist-text-subgroup:last-child {
+    margin-bottom: 0;
+}
+
+.decklist-text-subgroup h4 {
+    margin: 0 0 0.35rem;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-secondary);
+}
+
+.decklist-text-list {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--light-bg);
+}
+
+.decklist-text-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.4rem 0.65rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.decklist-text-row:last-child {
+    border-bottom: none;
+}
+
+.decklist-text-qty {
+    flex-shrink: 0;
+    min-width: 1.8rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    font-size: 0.85rem;
+}
+
+.decklist-text-name {
+    font-size: 0.9rem;
+    word-break: break-word;
+}
+
 .notification-toast {
     min-width: 280px;
     max-width: 360px;
