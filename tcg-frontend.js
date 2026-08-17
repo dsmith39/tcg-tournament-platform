@@ -1076,6 +1076,27 @@ function getMaxAllowedCopiesByBanStatus(status) {
     return 3;
 }
 
+async function fetchCardDataByExactName(name) {
+    const response = await fetch(`${YGO_CARD_API_URL}?name=${encodeURIComponent(name)}`);
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data?.data?.[0] || null;
+}
+
+// `name=` is an exact match against the local DB, which can miss on a saved
+// decklist whose stored casing/whitespace has drifted from the current
+// catalog entry (e.g. after a `cards:import` refresh). Retrying with `fname=`
+// (substring match) and picking the case-insensitive exact match recovers
+// those instead of leaving the card's type unresolved.
+async function fetchCardDataByFuzzyName(name) {
+    const response = await fetch(`${YGO_CARD_API_URL}?fname=${encodeURIComponent(name)}`);
+    if (!response.ok) return null;
+    const data = await response.json();
+    const cards = Array.isArray(data?.data) ? data.data : [];
+    const lower = name.toLowerCase();
+    return cards.find((c) => (c?.name || '').toLowerCase() === lower) || null;
+}
+
 async function fetchDetailedCardByName(cardName) {
     const normalized = String(cardName || '').trim();
     if (!normalized) {
@@ -1087,13 +1108,7 @@ async function fetchDetailedCardByName(cardName) {
         return detailedCardInfoCache.get(cacheKey);
     }
 
-    const response = await fetch(`${YGO_CARD_API_URL}?name=${encodeURIComponent(normalized)}`);
-    if (!response.ok) {
-        throw new Error('Card not found');
-    }
-
-    const data = await response.json();
-    const card = data?.data?.[0];
+    const card = (await fetchCardDataByExactName(normalized)) || (await fetchCardDataByFuzzyName(normalized));
     if (!card) {
         throw new Error('Card not found');
     }
@@ -1500,20 +1515,20 @@ function groupDeckTextForDisplay(deckText) {
 // fetchDetailedCardByName cache the banlist validator and deck stats warm.
 async function groupMainDeckByType(deckText) {
     const grouped = groupDeckTextForDisplay(deckText);
-    const buckets = { monster: [], spell: [], trap: [] };
+    const buckets = { monster: [], spell: [], trap: [], unresolved: [] };
 
     await Promise.all(grouped.map(async (card) => {
-        let type = '';
         try {
             const detailed = await fetchDetailedCardByName(card.name);
-            type = detailed?.type || '';
+            const type = detailed?.type || '';
+            if (type.includes('Spell')) buckets.spell.push(card);
+            else if (type.includes('Trap')) buckets.trap.push(card);
+            else buckets.monster.push(card);
         } catch (error) {
-            // Unresolvable card name -- fall through to Monsters as a safe default.
+            // Genuinely unresolvable (not in the local card DB) -- keep it out of
+            // Monsters rather than silently mislabeling a Spell/Trap as one.
+            buckets.unresolved.push(card);
         }
-
-        if (type.includes('Spell')) buckets.spell.push(card);
-        else if (type.includes('Trap')) buckets.trap.push(card);
-        else buckets.monster.push(card);
     }));
 
     return buckets;
@@ -1531,6 +1546,7 @@ async function renderDecklistMainDeckTextSection(deckText) {
             ${renderDecklistTextSubgroup('Monsters', buckets.monster)}
             ${renderDecklistTextSubgroup('Spells', buckets.spell)}
             ${renderDecklistTextSubgroup('Traps', buckets.trap)}
+            ${renderDecklistTextSubgroup('Unresolved', buckets.unresolved)}
         </div>
     `;
 }
