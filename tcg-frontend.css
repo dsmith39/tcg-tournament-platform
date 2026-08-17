@@ -703,6 +703,70 @@ p {
     margin-bottom: 1rem;
 }
 
+.decklist-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 1rem;
+    flex-wrap: wrap;
+    max-width: 1100px;
+    margin: 1.5rem auto 1rem;
+}
+
+.decklist-toolbar #decklist-new-btn {
+    margin: 0;
+}
+
+.decklist-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+.decklist-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 5vh 1rem;
+    overflow-y: auto;
+    z-index: 260;
+}
+
+.decklist-modal-overlay.hidden {
+    display: none;
+}
+
+.decklist-modal {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 1.25rem;
+    max-width: 720px;
+    width: 100%;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.decklist-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.decklist-modal-header h3 {
+    margin: 0;
+}
+
+.decklist-modal-header #decklist-form-close-btn {
+    margin: 0;
+}
+
 .deck-image-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));

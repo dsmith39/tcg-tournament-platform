@@ -225,9 +225,28 @@
             <h1>My Decklists</h1>
             <p>Save decklists once, then submit one when you join tournaments.</p>
 
-            <div style="max-width: 900px; margin: 1.5rem auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
-                <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem;">
-                    <h3 id="decklist-form-title">Create Decklist</h3>
+            <div class="decklist-toolbar">
+                <div class="form-group" style="margin: 0;">
+                    <label for="decklist-visibility-filter">Filter by visibility</label>
+                    <select id="decklist-visibility-filter">
+                        <option value="all">All</option>
+                        <option value="public">Public</option>
+                        <option value="private">Private</option>
+                    </select>
+                </div>
+                <button type="button" class="btn" id="decklist-new-btn" onclick="openDecklistForm()">+ New Decklist</button>
+            </div>
+
+            <div class="decklist-grid" id="decklist-list">
+                <div class="empty-state">Loading decklists...</div>
+            </div>
+
+            <div id="decklist-form-overlay" class="decklist-modal-overlay hidden" onclick="if (event.target === this) closeDecklistForm();">
+                <div class="decklist-modal">
+                    <div class="decklist-modal-header">
+                        <h3 id="decklist-form-title">Create Decklist</h3>
+                        <button type="button" class="btn secondary" id="decklist-form-close-btn" onclick="closeDecklistForm()">&times; Close</button>
+                    </div>
                     <form id="decklist-form">
                         <div class="form-group">
                             <label for="decklist-name">Decklist Name</label>
@@ -329,21 +348,6 @@
                         <button type="submit" class="btn" id="decklist-submit-btn">Save Decklist</button>
                         <button type="button" class="btn secondary" onclick="resetDecklistForm()">Clear</button>
                     </form>
-                </div>
-
-                <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem;">
-                    <h3>Saved Decklists</h3>
-                    <div class="form-group" style="margin-bottom: 0.5rem;">
-                        <label for="decklist-visibility-filter">Filter by visibility</label>
-                        <select id="decklist-visibility-filter">
-                            <option value="all">All</option>
-                            <option value="public">Public</option>
-                            <option value="private">Private</option>
-                        </select>
-                    </div>
-                    <div class="tournament-list" id="decklist-list">
-                        <div class="empty-state">Loading decklists...</div>
-                    </div>
                 </div>
             </div>
         </section>
