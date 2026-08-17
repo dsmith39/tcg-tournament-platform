@@ -54,7 +54,8 @@ npm run cards:import
 npm run cards:search -- "Blue-Eyes"
 npm run cards:download-images
 
-# Deploy to AWS (theduelclub.com) — see "Deployment" below
+# Manual/one-off deploy to AWS (theduelclub.com) — normally deploys happen
+# automatically on merge to main instead; see "Deployment" below
 .\deploy\aws\deploy.ps1
 ```
 
@@ -141,6 +142,7 @@ Deployed, `cards.db` ships read-only inside the Lambda zip. `CARD_DB_READONLY=tr
 Two storage engines, split by write pattern:
 
 - **DynamoDB** — app data (`users`, `decklists`, `tournaments`, plus a `connections` table for WebSocket fan-out). Table names/schemas are defined once in `server/dynamo-schema.js` and mirrored by hand in `template.yaml`'s `AWS::DynamoDB::Table` resources (only 4 tables, so drift risk is low). Tournaments store their nested rounds/matches/registrations as a single JSON-shaped item attribute rather than normalized child items: every route handler already loads a tournament whole, mutates the in-memory tree, and saves it back whole, so there's no per-item concurrent-update pattern that would benefit from normalization. `users` enforces username/email uniqueness with a lock-item pattern (extra items at `pk="USERNAME#<u>"`/`pk="EMAIL#<e>"`) since DynamoDB has no native unique-attribute constraint. `server/dynamo.js` is the shared client; tests point it at a local `dynalite` instance via `DYNAMODB_ENDPOINT` and call `resetTables()` for a clean slate per run.
+  - **Reserved keywords in expressions:** attribute names used directly in a `KeyConditionExpression`/`FilterExpression`/`UpdateExpression` (e.g. `owner`, `name`, `status`, `game`) must be aliased via `ExpressionAttributeNames` (`'#owner': 'owner'` → `#owner = :owner`) if they collide with a [DynamoDB reserved word](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ReservedWords.html). `dynalite` (the local test emulator) does **not** enforce this the way real DynamoDB does, so a query built against a reserved word passes `npm run test:api` locally/in CI but throws `ValidationException: Attribute name is a reserved keyword` in production — this is exactly what broke `GET /api/decklists` (`owner-index` query in `server/models/decklists.js` used bare `owner`, fixed by aliasing to `#owner`). When adding a new Query/Scan/Update expression, alias the attribute name defensively rather than trusting a green test run.
 - **SQLite** (`card-database/data/cards.db`, via Node's built-in `node:sqlite`, not the `better-sqlite3` npm package — no C++ build toolchain in this workspace, and `node:sqlite` needs no native compilation) — bulk-overwritten catalog data only, never written to by live user traffic. One `cards` table, `images`/`sets`/`prices`/`banlistInfo` stored as JSON columns. `:memory:` when `NODE_ENV=test`.
 
 Model shapes (fields on objects returned by `server/models/*.js`):
@@ -239,7 +241,12 @@ CORS_ALLOWED_ORIGINS=         # Comma-separated allowlist; unset = reflect any o
 
 ## Deployment
 
-Live at **theduelclub.com**, deployed as a single AWS SAM/CloudFormation stack (`template.yaml`, stack name `theduelclub`, `us-east-1`) via `.\deploy\aws\deploy.ps1`:
+Live at **theduelclub.com**, deployed as a single AWS SAM/CloudFormation stack (`template.yaml`, stack name `theduelclub`, `us-east-1`). Two ways to trigger a deploy:
+
+- **Automatic (normal path):** `.github/workflows/deploy.yml` runs after every `CI` workflow run on `main` that concludes successfully — i.e. merging a PR to `main` deploys to production once CI is green, with no manual step required. It rebuilds the Lambda zip, packages/deploys `template.yaml` via `aws cloudformation deploy`, syncs the frontend to S3, and invalidates CloudFront. It downloads `card-database/data/cards.db` from `s3://theduelclub-deploy-<account-id>/card-database/cards.db` rather than rebuilding the catalog (upload a new one manually when the catalog changes — see the workflow's comments) and does **not** sync card images (`-SyncCardImages`-equivalent is a manual `aws s3 sync`, same rationale as `deploy.ps1` below). Requires the `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`JWT_SECRET`/`ADMIN_EMAILS` repository secrets under the `production` environment.
+- **Manual (local/one-off):** `.\deploy\aws\deploy.ps1`, same underlying stack — see below.
+
+The stack itself:
 
 - **Frontend** — static (`tcg-frontend-updated.html`/`.css`/`.js`) on S3 + CloudFront, not served by the Lambda. `CustomErrorResponses` fall back 403/404 to `index.html` so the SPA's own router still handles client-side paths.
 - **API** — the same Express app as local dev, on Lambda behind an API Gateway HTTP API (`api.theduelclub.com`), via the Lambda Web Adapter (`run.sh`, `AWS_LAMBDA_EXEC_WRAPPER`).
@@ -271,3 +278,5 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to main and all PRs:
 5. Upload Playwright report and test-results artifacts
 
 Node 24 is pinned in CI (bumped from 20 during the MongoDB → SQLite migration). `node:sqlite` exists from Node 22.5.0, but requires the `--experimental-sqlite` CLI flag on every 22.x release before 22.13.0 — an early attempt to pin CI to `'22.11'` hit exactly that gap (`ERR_UNKNOWN_BUILTIN_MODULE`) since `require('node:sqlite')` fails outright without the flag on those versions. Pinning to Node 24 sidesteps the flag question entirely. `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` is set for GitHub-hosted runner action compatibility.
+
+`.github/workflows/deploy.yml` is a separate workflow, triggered via `workflow_run` once `CI` completes successfully on `main` — so a merge to `main` deploys to production automatically as long as CI is green. See "Deployment" below for what it does. It never runs directly off a PR branch, and a failing CI run on `main` blocks it from firing at all.
