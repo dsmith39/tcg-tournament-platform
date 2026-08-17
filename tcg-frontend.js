@@ -2143,6 +2143,8 @@ function activateSection(sectionId, trackHistory = true) {
         }
     }
 
+    hideDecklistFormOverlay();
+
     document.querySelectorAll('section').forEach((s) => s.classList.remove('active'));
 
     const section = document.getElementById(sectionId);
@@ -2979,6 +2981,27 @@ async function loadMyDecklists(options = {}) {
     return myDecklists;
 }
 
+function showDecklistFormOverlay() {
+    const overlay = document.getElementById('decklist-form-overlay');
+    if (overlay) overlay.classList.remove('hidden');
+}
+
+function hideDecklistFormOverlay() {
+    const overlay = document.getElementById('decklist-form-overlay');
+    if (overlay) overlay.classList.add('hidden');
+}
+
+function openDecklistForm() {
+    if (!requireAuth('create decklists')) return;
+    resetDecklistForm();
+    showDecklistFormOverlay();
+}
+
+function closeDecklistForm() {
+    hideDecklistFormOverlay();
+    resetDecklistForm();
+}
+
 function resetDecklistForm() {
     editingDecklistId = null;
     deckBuilder = createEmptyDeckBuilder();
@@ -3030,6 +3053,7 @@ async function editDecklist(decklistId) {
     document.getElementById('decklist-submit-btn').textContent = 'Update Decklist';
 
     switchSection('decklists');
+    showDecklistFormOverlay();
 }
 
 async function deleteDecklist(decklistId) {
@@ -3050,7 +3074,7 @@ async function deleteDecklist(decklistId) {
         }
 
         if (editingDecklistId === decklistId) {
-            resetDecklistForm();
+            closeDecklistForm();
         }
 
         await renderDecklists();
@@ -3188,6 +3212,7 @@ async function promptDecklistSelectionForJoin(tournamentGame = null) {
     if (availableDecklists.length === 0) {
         alert('Please create at least one decklist for this format before joining.');
         switchSection('decklists');
+        openDecklistForm();
         return null;
     }
 
@@ -4723,7 +4748,7 @@ if (decklistForm) {
                 return;
             }
 
-            resetDecklistForm();
+            closeDecklistForm();
             await renderDecklists();
             addNotification('Decklist saved successfully.', 'success');
         } catch (error) {
@@ -5251,6 +5276,14 @@ if (document.getElementById('decklist-form')) {
     ensureDecklistArchetypeField();
     resetDecklistForm();
 }
+
+document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    const overlay = document.getElementById('decklist-form-overlay');
+    if (overlay && !overlay.classList.contains('hidden')) {
+        closeDecklistForm();
+    }
+});
 
 initializeRealtimeSocket();
 startLivePolling();
