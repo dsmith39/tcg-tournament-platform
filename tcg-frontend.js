@@ -1520,9 +1520,11 @@ async function groupMainDeckByType(deckText) {
     await Promise.all(grouped.map(async (card) => {
         try {
             const detailed = await fetchDetailedCardByName(card.name);
-            const type = detailed?.type || '';
-            if (type.includes('Spell')) buckets.spell.push(card);
-            else if (type.includes('Trap')) buckets.trap.push(card);
+            // frameType is a clean single token ("spell", "trap", "normal", "synchro", ...) --
+            // unlike the free-text "type" string, it needs no substring guessing.
+            const frameType = String(detailed?.frameType || '').toLowerCase();
+            if (frameType === 'spell') buckets.spell.push(card);
+            else if (frameType === 'trap') buckets.trap.push(card);
             else buckets.monster.push(card);
         } catch (error) {
             // Genuinely unresolvable (not in the local card DB) -- keep it out of
