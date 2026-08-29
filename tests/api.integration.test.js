@@ -169,6 +169,61 @@ test('decklist flow: create, update, and delete', async () => {
   assert.equal(deleteResponse.body.message, 'Decklist deleted');
 });
 
+test('decklist flow: duel links decks keep skills, other games drop them', async () => {
+  const client = request.agent(app);
+
+  await registerUser(client, {
+    username: 'skillpilot',
+    email: 'skillpilot@example.com',
+    password: 'secret123'
+  });
+
+  // Blank lines, duplicates (case-insensitively), and anything past the 3-skill
+  // cap are dropped rather than rejected, so a sloppy paste still saves.
+  const duelLinksResponse = await client
+    .post('/api/decklists')
+    .send({
+      name: 'Duel Links Control',
+      game: 'duel-links',
+      mainDeck: '3x Sphere Kuriboh',
+      skills: '  Balance  \n\nbalance\nDestiny Draw\nSealed Tombs\nRestart\n'
+    });
+
+  assert.equal(duelLinksResponse.status, 201);
+  assert.equal(duelLinksResponse.body.skills, 'Balance\nDestiny Draw\nSealed Tombs');
+
+  // Skills are a Duel Links concept, so they never persist on another game.
+  const tcgResponse = await client
+    .post('/api/decklists')
+    .send({
+      name: 'TCG List',
+      game: 'ygo-tcg',
+      mainDeck: '3x Raye',
+      skills: 'Balance'
+    });
+
+  assert.equal(tcgResponse.status, 201);
+  assert.equal(tcgResponse.body.skills, '');
+
+  // Editing just the skills leaves them in place...
+  const patchSkillsResponse = await client
+    .patch(`/api/decklists/${duelLinksResponse.body._id}`)
+    .send({ skills: 'Peak Performance' });
+
+  assert.equal(patchSkillsResponse.status, 200);
+  assert.equal(patchSkillsResponse.body.skills, 'Peak Performance');
+
+  // ...but switching the deck off Duel Links clears them, even when the same
+  // request does not mention skills at all.
+  const patchGameResponse = await client
+    .patch(`/api/decklists/${duelLinksResponse.body._id}`)
+    .send({ game: 'master-duel' });
+
+  assert.equal(patchGameResponse.status, 200);
+  assert.equal(patchGameResponse.body.game, 'master-duel');
+  assert.equal(patchGameResponse.body.skills, '');
+});
+
 test('decklist flow: rejects unauthenticated and invalid decklist writes', async () => {
   const publicClient = request(app);
 

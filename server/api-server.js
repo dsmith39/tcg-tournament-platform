@@ -25,6 +25,8 @@ const { TournamentVersionConflictError } = tournamentsRepo;
 const { broadcastTournamentUpdate, broadcastDecklistUpdate } = require('./realtime');
 const {
   gameEnumValues,
+  MAX_DECK_SKILLS,
+  MAX_DECK_SKILL_NAME_LENGTH,
   registerBodySchema,
   loginBodySchema,
   userProfileUpdateBodySchema,
@@ -48,6 +50,31 @@ const {
   writeLimiter,
   matchActionLimiter
 } = require('./security');
+
+// Only Duel Links decks carry Skills, so a skills value submitted with any other
+// game is dropped rather than stored -- that keeps `game` the single source of
+// truth for whether a saved deck has skills, instead of leaving orphaned skill
+// text behind when a deck is switched to TCG/Master Duel.
+const SKILLS_GAME = 'duel-links';
+
+// Skills are stored like the deck sections: one newline-separated string.
+function normalizeDeckSkills(skills, game) {
+  if (game !== SKILLS_GAME || typeof skills !== 'string') return '';
+
+  const seen = new Set();
+  return skills
+    .split(/\r?\n/)
+    .map((line) => line.trim().slice(0, MAX_DECK_SKILL_NAME_LENGTH))
+    .filter((line) => {
+      if (!line) return false;
+      const key = line.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, MAX_DECK_SKILLS)
+    .join('\n');
+}
 
 function registerApi(app) {
   // Global middleware is intentionally kept minimal here so route handlers remain explicit.
@@ -1368,6 +1395,7 @@ function registerApi(app) {
         mainDeck = '',
         extraDeck = '',
         sideDeck = '',
+        skills = '',
         isPublic = true,
         archetype = '',
         notes = ''
@@ -1380,6 +1408,7 @@ function registerApi(app) {
         mainDeck: mainDeck.trim(),
         extraDeck: typeof extraDeck === 'string' ? extraDeck.trim() : '',
         sideDeck: typeof sideDeck === 'string' ? sideDeck.trim() : '',
+        skills: normalizeDeckSkills(skills, game),
         isPublic: typeof isPublic === 'boolean' ? isPublic : true,
         archetype: typeof archetype === 'string' ? archetype.trim().slice(0, 80) : '',
         notes: typeof notes === 'string' ? notes.trim() : ''
@@ -1418,6 +1447,14 @@ function registerApi(app) {
 
         decklist[field] = req.validated.body[field].trim();
       });
+
+      // Re-normalized after the loop above so that switching `game` in the same
+      // PATCH is accounted for: moving a deck off Duel Links clears its skills,
+      // and moving one onto Duel Links keeps whatever the request supplied.
+      decklist.skills = normalizeDeckSkills(
+        Object.prototype.hasOwnProperty.call(req.validated.body, 'skills') ? req.validated.body.skills : decklist.skills,
+        decklist.game
+      );
 
       if (!decklist.name) {
         return res.status(400).json({ error: 'Decklist name is required' });

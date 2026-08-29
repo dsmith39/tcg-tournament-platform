@@ -147,7 +147,7 @@ Two storage engines, split by write pattern:
 
 Model shapes (fields on objects returned by `server/models/*.js`):
 - **User** — auth, profile, `refreshTokens` (JSON array), `sessionVersion`
-- **Decklist** — card lists stored as newline-separated strings
+- **Decklist** — card lists stored as newline-separated strings, plus `skills` (Duel Links only, same newline-separated shape)
 - **Tournament** — status machine: `registration → active → completed`
 - **Round** (in `tournament.rounds`) — `not_started → active → locked → completed`
 - **Match** (in `round.matches`) — `pending → awaiting-confirmation → confirmed | disputed`
@@ -186,6 +186,8 @@ This logic (in `server/api-server.js`) is pure JS operating on an in-memory tour
 ### Deck Builder
 
 The decklist form (`#decklists` section) already enforces per-format size limits (TCG/Master Duel 40–60 main, Duel Links 20–30 main), a flat 3-copy cap for all games, and TCG banlist enforcement (`validateDecklistLegality`, `getMaxAllowedCopiesByBanStatus`) by resolving each card through the local card database. `.ydk` import/export (`exportCurrentDeckAsYdk`, `exportDecklistByIdAsYdk`, `importDeckFromTextPrompt`) and a Monster/Spell/Trap/Total stat line (`renderDeckStats`) round it out.
+
+**Duel Links skills:** a Duel Links deck also equips a Skill, so the form shows a skills block (`#decklist-skills-group`) whenever Game Format is `duel-links` and hides it -- clearing whatever was entered -- for the other games. Skills are *not* cards: they have no YGOPRODeck entry, so the input is free text with a `<datalist>` of common skills (`COMMON_DUEL_LINKS_SKILLS`) rather than a card-database lookup. They're stored on the decklist as one newline-separated string (`skills`), capped at 3 entries, and `normalizeDeckSkills()` in `server/api-server.js` drops the field entirely for non-Duel-Links games -- including when a PATCH switches an existing deck's `game` -- so `game` stays the single source of truth for whether a deck has skills. A Duel Links deck saved with no skill is a legality *warning*, not an error, so decks created before the field existed stay editable.
 
 ---
 

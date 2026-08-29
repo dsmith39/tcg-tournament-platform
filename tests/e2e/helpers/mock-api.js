@@ -58,6 +58,19 @@ async function installMockApi(page, options = {}) {
         notes: '',
         isPublic: true,
         owner: { username: 'playwright-user' }
+      },
+      {
+        _id: '507f1f77bcf86cd799439012',
+        name: 'Links Beatdown',
+        game: 'duel-links',
+        mainDeck: 'Blue-Eyes White Dragon',
+        extraDeck: '',
+        sideDeck: '',
+        skills: 'Balance',
+        archetype: '',
+        notes: '',
+        isPublic: true,
+        owner: { username: 'playwright-user' }
       }
     ],
     tournaments: [
@@ -192,6 +205,12 @@ async function installMockApi(page, options = {}) {
 
     if (index < 0) {
       await json(route, 404, { error: 'Decklist not found' });
+      return;
+    }
+
+    // Backs the /decklists/:id deep link (viewDecklist).
+    if (method === 'GET') {
+      await json(route, 200, state.decklists[index]);
       return;
     }
 

@@ -1385,3 +1385,66 @@ footer {
 .deck-type-group .deck-card-list {
     max-height: 160px;
 }
+
+/* Duel Links skills -- a separate block above the card sections, since a skill
+   is not a card and has no image, quantity, or card-database entry. */
+.deck-skills-section {
+    margin-bottom: 1rem;
+    padding: 0.8rem;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--surface-bg);
+}
+
+.deck-skills-section h4 {
+    margin-bottom: 0.25rem;
+    font-size: 0.95rem;
+}
+
+.deck-skills-hint {
+    margin: 0 0 0.7rem;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+
+.deck-skills-controls {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.8rem;
+    align-items: end;
+    margin-bottom: 0.7rem;
+}
+
+.deck-skills-controls .btn {
+    margin: 0;
+}
+
+.deck-skill-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.deck-skill-item {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.5rem 0.6rem;
+}
+
+.deck-skill-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.88rem;
+    font-weight: 600;
+    word-break: break-word;
+}
+
+@media (max-width: 768px) {
+    .deck-skills-controls {
+        grid-template-columns: 1fr;
+    }
+}
