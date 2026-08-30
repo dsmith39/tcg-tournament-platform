@@ -224,6 +224,43 @@ test('decklist flow: duel links decks keep skills, other games drop them', async
   assert.equal(patchGameResponse.body.skills, '');
 });
 
+test('duel links skills: catalog search is public and ranks exact names first', async () => {
+  const publicClient = request(app);
+
+  // Reference data, not user data -- no auth, same as the card lookup.
+  const searchResponse = await publicClient.get('/api/duel-links-skills?q=balance');
+
+  assert.equal(searchResponse.status, 200);
+  assert.ok(Array.isArray(searchResponse.body.skills));
+  assert.equal(searchResponse.body.skills[0].name, 'Balance');
+  assert.ok(searchResponse.body.skills[0].description.length > 0);
+
+  // The whole point of the import: the full catalog, not a hand-written subset.
+  assert.ok(
+    searchResponse.body.total > 900,
+    `expected a full skill catalog, got ${searchResponse.body.total}`
+  );
+
+  // Mid-name matches still surface, so "sense" finds the Draw Sense family.
+  const partialResponse = await publicClient.get('/api/duel-links-skills?q=draw%20sense');
+  assert.equal(partialResponse.status, 200);
+  assert.ok(partialResponse.body.skills.length > 1);
+  assert.ok(partialResponse.body.skills.every((skill) => /draw sense/i.test(skill.name)));
+
+  // Rush Duel skills are carried too, flagged so the picker can label them.
+  const rushResponse = await publicClient.get('/api/duel-links-skills?q=&limit=50');
+  assert.equal(rushResponse.status, 200);
+  assert.ok(rushResponse.body.skills.every((skill) => typeof skill.rush === 'boolean'));
+
+  // An empty query lists the head of the catalog rather than erroring.
+  assert.ok(rushResponse.body.skills.length > 0);
+
+  // A nonsense query is an empty list, not a 404.
+  const missResponse = await publicClient.get('/api/duel-links-skills?q=zzzzznotaskill');
+  assert.equal(missResponse.status, 200);
+  assert.deepEqual(missResponse.body.skills, []);
+});
+
 test('decklist flow: rejects unauthenticated and invalid decklist writes', async () => {
   const publicClient = request(app);
 

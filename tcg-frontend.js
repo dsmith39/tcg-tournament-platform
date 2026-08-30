@@ -24,6 +24,13 @@ let deckBuilder = { main: [], extra: [], side: [] };
 // Duel Links skills live outside deckBuilder: a skill is not a card, so it has no
 // card-database entry, image, or 3-copy quantity rule to share with the sections.
 let deckSkills = [];
+let skillSuggestionTimer = null;
+let skillSuggestionAbortController = null;
+let activeSkillSuggestions = [];
+let activeSkillSuggestionIndex = -1;
+// Name -> catalog entry (or null when the catalog has never heard of it), so a
+// repeated save doesn't re-query the same names to decide whether to warn.
+const skillCatalogCache = new Map();
 const cardLookupCache = new Map();
 let cardSuggestionTimer = null;
 let cardSuggestionAbortController = null;
@@ -116,8 +123,8 @@ function ensureDecklistSkillsField() {
             <div class="deck-skills-controls">
                 <div class="form-group" style="margin-bottom: 0;">
                     <label for="deck-skill-name">Skill Name</label>
-                    <input type="text" id="deck-skill-name" list="deck-skill-suggestions" placeholder="e.g., Balance" maxlength="${MAX_DECK_SKILL_NAME_LENGTH}" autocomplete="off">
-                    <datalist id="deck-skill-suggestions"></datalist>
+                    <input type="text" id="deck-skill-name" placeholder="Search skills, e.g. Balance" maxlength="${MAX_DECK_SKILL_NAME_LENGTH}" autocomplete="off">
+                    <div id="deck-skill-suggestions" class="card-suggestions" style="display: none;"></div>
                 </div>
                 <button type="button" class="btn" id="deck-add-skill-btn" onclick="addSkillToDeckBuilder()">+ Add Skill</button>
             </div>
@@ -134,13 +141,6 @@ function ensureDecklistSkillsField() {
         }
     }
 
-    const suggestions = document.getElementById('deck-skill-suggestions');
-    if (suggestions && !suggestions.childElementCount) {
-        suggestions.innerHTML = COMMON_DUEL_LINKS_SKILLS
-            .map((skill) => `<option value="${escapeHtml(skill)}"></option>`)
-            .join('');
-    }
-
     const gameSelect = document.getElementById('decklist-game');
     if (gameSelect && !gameSelect.dataset.skillsListenerBound) {
         gameSelect.dataset.skillsListenerBound = 'true';
@@ -150,12 +150,46 @@ function ensureDecklistSkillsField() {
     const skillInput = document.getElementById('deck-skill-name');
     if (skillInput && !skillInput.dataset.skillsListenerBound) {
         skillInput.dataset.skillsListenerBound = 'true';
-        // The input sits inside #decklist-form, so a bare Enter would submit the
-        // whole decklist instead of adding the skill the user just typed.
+
+        skillInput.addEventListener('input', queueSkillSuggestions);
+        // Focusing an empty box offers the head of the catalog, so the picker is
+        // discoverable without having to guess a first letter.
+        skillInput.addEventListener('focus', queueSkillSuggestions);
+        skillInput.addEventListener('blur', () => {
+            // Deferred so a mousedown on a suggestion still lands before the list closes.
+            setTimeout(hideSkillSuggestions, 120);
+        });
+
         skillInput.addEventListener('keydown', (event) => {
-            if (event.key !== 'Enter') return;
-            event.preventDefault();
-            addSkillToDeckBuilder();
+            if (event.key === 'ArrowDown' && activeSkillSuggestions.length > 0) {
+                event.preventDefault();
+                activeSkillSuggestionIndex = Math.min(activeSkillSuggestionIndex + 1, activeSkillSuggestions.length - 1);
+                renderSkillSuggestions();
+                return;
+            }
+
+            if (event.key === 'ArrowUp' && activeSkillSuggestions.length > 0) {
+                event.preventDefault();
+                activeSkillSuggestionIndex = Math.max(activeSkillSuggestionIndex - 1, 0);
+                renderSkillSuggestions();
+                return;
+            }
+
+            if (event.key === 'Escape') {
+                hideSkillSuggestions();
+                return;
+            }
+
+            // The input sits inside #decklist-form, so a bare Enter would submit the
+            // whole decklist instead of adding the skill the user just typed.
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                if (activeSkillSuggestions.length > 0 && activeSkillSuggestionIndex >= 0) {
+                    applySkillSuggestion(activeSkillSuggestionIndex);
+                    return;
+                }
+                addSkillToDeckBuilder();
+            }
         });
     }
 }
@@ -775,37 +809,16 @@ const SKILLS_GAME = 'duel-links';
 const MAX_DECK_SKILLS = 3;
 const MAX_DECK_SKILL_NAME_LENGTH = 80;
 
-// Suggestions only -- the input stays free text, because Duel Links skills are
-// a mobile-game concept with no entry in the YGOPRODeck catalog the rest of the
-// deck builder resolves against, so there is nothing to validate a name against.
-const COMMON_DUEL_LINKS_SKILLS = [
-    'Balance',
-    'Beatdown!',
-    'Cyber Style',
-    'Destiny Draw',
-    'Draw Sense: Dark',
-    'Draw Sense: Light',
-    'Draw Sense: Low-Level',
-    'Elementsaber Awakening',
-    'Harpies Hunting Ground',
-    'Level Augmentation',
-    'Light and Darkness',
-    'Master of Fusion',
-    'Middle Age Mechs',
-    'Peak Performance',
-    'Restart',
-    'Sealed Tombs',
-    'Shuffle Reborn',
-    'Sorcery Conduit',
-    'Spell Specialist',
-    'Straight to the Grave',
-    'Sweet Dreams',
-    'Switcheroo',
-    'The Tie that Binds',
-    'Titan Showdown',
-    'Trap Master',
-    'Yami no Game'
-];
+// The full Duel Links skill catalog lives server-side
+// (server/reference-data/duel-links-skills.json, ~1,100 entries) and is queried
+// through /api/duel-links-skills as the user types, the same way card names are.
+// Shipping the whole list to the browser would be ~500KB for a field most decks
+// use once, and it would still go stale the moment Konami adds a skill.
+//
+// The catalog is a picker, not an allowlist: a brand-new skill missing from the
+// last import must still be typeable, so an unrecognized name saves with a
+// warning rather than being rejected.
+const SKILL_SUGGESTION_LIMIT = 12;
 
 function deckGameSupportsSkills(game) {
     return game === SKILLS_GAME;
@@ -1282,6 +1295,18 @@ async function validateDecklistLegality(payload) {
         const skills = parseSkillsText(payload.skills || '');
         if (skills.length === 0) {
             warnings.push('No Duel Links skill listed for this deck.');
+        }
+
+        // Likewise for names the catalog doesn't know: it's a snapshot from the
+        // last `npm run skills:import`, so a skill Konami shipped since then is
+        // legitimately absent. Flag it, never block on it.
+        for (const skill of skills) {
+            const known = await lookupSkillInCatalog(skill);
+            // Only a definitive miss (null) warrants a warning -- undefined means the
+            // lookup never completed, and a dropped request is no evidence of a typo.
+            if (known === null) {
+                warnings.push(`"${skill}" is not in the Duel Links skill list — double-check the spelling.`);
+            }
         }
     } else {
         if (mainNames.length < 40 || mainNames.length > 60) {
@@ -2005,6 +2030,126 @@ function setDeckSkillFeedback(message, type = 'error') {
     feedback.className = type === 'success' ? 'success' : 'error';
 }
 
+function hideSkillSuggestions() {
+    const container = document.getElementById('deck-skill-suggestions');
+    if (container) {
+        container.innerHTML = '';
+        container.style.display = 'none';
+    }
+    activeSkillSuggestions = [];
+    activeSkillSuggestionIndex = -1;
+}
+
+function renderSkillSuggestions() {
+    const container = document.getElementById('deck-skill-suggestions');
+    if (!container) return;
+
+    if (!activeSkillSuggestions.length) {
+        hideSkillSuggestions();
+        return;
+    }
+
+    container.innerHTML = activeSkillSuggestions.map((skill, index) => `
+        <button
+            type="button"
+            class="card-suggestion-btn skill-suggestion-btn ${index === activeSkillSuggestionIndex ? 'active' : ''}"
+            onmousedown="event.preventDefault(); applySkillSuggestion(${index})"
+        >
+            <span class="skill-suggestion-name">${escapeHtml(skill.name)}${skill.rush ? '<span class="skill-suggestion-tag">Rush Duel</span>' : ''}</span>
+            ${skill.description ? `<span class="skill-suggestion-desc">${escapeHtml(skill.description)}</span>` : ''}
+        </button>
+    `).join('');
+
+    container.style.display = 'block';
+}
+
+async function fetchSkillSuggestions(query) {
+    if (skillSuggestionAbortController) {
+        skillSuggestionAbortController.abort();
+    }
+
+    skillSuggestionAbortController = new AbortController();
+
+    try {
+        const response = await fetch(
+            `${API_URL}/duel-links-skills?q=${encodeURIComponent(query)}&limit=${SKILL_SUGGESTION_LIMIT}`,
+            { signal: skillSuggestionAbortController.signal, suppressLoading: true }
+        );
+        if (!response.ok) return [];
+
+        const data = await response.json();
+        const skills = Array.isArray(data?.skills) ? data.skills : [];
+        skills.forEach((skill) => skillCatalogCache.set(skill.name.toLowerCase(), skill));
+        return skills;
+    } catch (error) {
+        // Aborted or offline -- the input stays free text either way.
+        return [];
+    }
+}
+
+function queueSkillSuggestions() {
+    const input = document.getElementById('deck-skill-name');
+    if (!input) return;
+
+    if (skillSuggestionTimer) {
+        clearTimeout(skillSuggestionTimer);
+    }
+
+    const query = input.value.trim();
+
+    skillSuggestionTimer = setTimeout(async () => {
+        const currentQuery = input.value.trim();
+        const suggestions = await fetchSkillSuggestions(currentQuery);
+
+        // Bail if the user kept typing while the request was in flight.
+        if (currentQuery !== input.value.trim()) return;
+
+        activeSkillSuggestions = suggestions;
+        activeSkillSuggestionIndex = suggestions.length > 0 ? 0 : -1;
+        renderSkillSuggestions();
+    }, query ? 180 : 0);
+}
+
+function applySkillSuggestion(index) {
+    const suggestion = activeSkillSuggestions[index];
+    const input = document.getElementById('deck-skill-name');
+    if (!suggestion || !input) return;
+
+    input.value = suggestion.name;
+    hideSkillSuggestions();
+    addSkillToDeckBuilder();
+    input.focus();
+}
+
+// Resolves a typed name against the catalog so an unrecognized skill can be
+// flagged. Tri-state on purpose: the entry when known, null when the catalog
+// definitively has no such skill, and undefined when the lookup itself never
+// completed -- callers must not read a failed request as a bad skill name.
+async function lookupSkillInCatalog(name) {
+    const key = String(name || '').trim().toLowerCase();
+    if (!key) return undefined;
+    if (skillCatalogCache.has(key)) return skillCatalogCache.get(key);
+
+    try {
+        const response = await fetch(
+            `${API_URL}/duel-links-skills?q=${encodeURIComponent(name)}&limit=${SKILL_SUGGESTION_LIMIT}`,
+            { suppressLoading: true }
+        );
+        if (!response.ok) return undefined;
+
+        const data = await response.json();
+        const skills = Array.isArray(data?.skills) ? data.skills : [];
+        skills.forEach((skill) => skillCatalogCache.set(skill.name.toLowerCase(), skill));
+
+        // Cached as null so a repeat save does not re-query a name already known absent.
+        const exact = skills.find((skill) => skill.name.toLowerCase() === key) || null;
+        skillCatalogCache.set(key, exact);
+        return exact;
+    } catch (error) {
+        return undefined;
+    }
+}
+
 function renderDeckSkills() {
     const count = document.getElementById('deck-count-skills');
     if (count) count.textContent = String(deckSkills.length);
@@ -2053,6 +2198,7 @@ function addSkillToDeckBuilder() {
 
     deckSkills.push(skill);
     input.value = '';
+    hideSkillSuggestions();
     renderDeckSkills();
     setDeckSkillFeedback(`Added ${skill}.`, 'success');
 }
@@ -2074,9 +2220,12 @@ function updateDecklistSkillsVisibility() {
     const supported = deckGameSupportsSkills(getSelectedDecklistGame());
     group.hidden = !supported;
 
-    if (!supported && deckSkills.length > 0) {
-        deckSkills = [];
-        setDeckSkillFeedback('');
+    if (!supported) {
+        hideSkillSuggestions();
+        if (deckSkills.length > 0) {
+            deckSkills = [];
+            setDeckSkillFeedback('');
+        }
     }
 
     renderDeckSkills();
@@ -3282,6 +3431,7 @@ function resetDecklistForm() {
     setDeckCardFeedback('');
     setDeckSkillFeedback('');
     hideCardSuggestions();
+    hideSkillSuggestions();
     updateDecklistSkillsVisibility();
     renderDeckBuilder();
 }

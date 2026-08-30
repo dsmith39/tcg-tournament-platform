@@ -20,6 +20,7 @@ const crypto = require('crypto');
 const { generateId } = require('./models/id');
 const usersRepo = require('./models/users');
 const decklistsRepo = require('./models/decklists');
+const duelLinksSkillsRepo = require('./models/duel-links-skills');
 const tournamentsRepo = require('./models/tournaments');
 const { TournamentVersionConflictError } = tournamentsRepo;
 const { broadcastTournamentUpdate, broadcastDecklistUpdate } = require('./realtime');
@@ -1335,6 +1336,19 @@ function registerApi(app) {
       res.json(profile);
     } catch (error) {
       res.status(404).json({ error: 'User not found' });
+    }
+  });
+
+  // Duel Links skill lookup for the deck builder's skill picker. Public and
+  // unauthenticated, matching the card lookup -- it's reference data, not user
+  // data. An empty q returns the head of the alphabetical list so the picker can
+  // show something on focus.
+  app.get('/api/duel-links-skills', (req, res) => {
+    try {
+      const skills = duelLinksSkillsRepo.search(req.query.q || '', req.query.limit);
+      res.json({ skills, total: duelLinksSkillsRepo.count() });
+    } catch (error) {
+      sendServerError(res, error);
     }
   });
 

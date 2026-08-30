@@ -1443,6 +1443,63 @@ footer {
     word-break: break-word;
 }
 
+/* Skill descriptions make this dropdown tall, so it overlays the block instead
+   of reflowing it -- in-flow it would shove the Add button into the middle of
+   the suggestion list. */
+.deck-skills-controls .form-group {
+    position: relative;
+}
+
+#deck-skill-suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 30;
+    margin-top: 0.35rem;
+}
+
+/* Skill suggestions stack name over effect text instead of sitting beside a
+   thumbnail, since a skill has no card art. */
+.skill-suggestion-btn {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+}
+
+.skill-suggestion-name {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    font-weight: 600;
+}
+
+.skill-suggestion-tag {
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    border-radius: 4px;
+    padding: 0.05rem 0.3rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+/* Skill effect text runs long, so it is clamped to keep every suggestion row
+   scannable at a glance -- the full text is on the skill itself in-game. */
+.skill-suggestion-desc {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
 @media (max-width: 768px) {
     .deck-skills-controls {
         grid-template-columns: 1fr;

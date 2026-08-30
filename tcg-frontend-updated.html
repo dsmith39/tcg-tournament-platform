@@ -277,8 +277,8 @@
                             <div class="deck-skills-controls">
                                 <div class="form-group" style="margin-bottom: 0;">
                                     <label for="deck-skill-name">Skill Name</label>
-                                    <input type="text" id="deck-skill-name" list="deck-skill-suggestions" placeholder="e.g., Balance" maxlength="80" autocomplete="off">
-                                    <datalist id="deck-skill-suggestions"></datalist>
+                                    <input type="text" id="deck-skill-name" placeholder="Search skills, e.g. Balance" maxlength="80" autocomplete="off">
+                                    <div id="deck-skill-suggestions" class="card-suggestions" style="display: none;"></div>
                                 </div>
                                 <button type="button" class="btn" id="deck-add-skill-btn" onclick="addSkillToDeckBuilder()">+ Add Skill</button>
                             </div>

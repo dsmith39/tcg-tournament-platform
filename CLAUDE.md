@@ -54,6 +54,9 @@ npm run cards:import
 npm run cards:search -- "Blue-Eyes"
 npm run cards:download-images
 
+# Duel Links skill catalog refresh (see "Duel Links Skill Catalog" below)
+npm run skills:import
+
 # Manual/one-off deploy to AWS (theduelclub.com) — normally deploys happen
 # automatically on merge to main instead; see "Deployment" below
 .\deploy\aws\deploy.ps1
@@ -83,7 +86,10 @@ server/
     id.js                     # generateId() — 24-char hex ids, shaped like Mongo ObjectIds
     users.js                  # User repository (DynamoDB)
     decklists.js              # Decklist repository (DynamoDB)
+    duel-links-skills.js      # Duel Links skill catalog (read-only JSON, see below)
     tournaments.js            # Tournament repository (DynamoDB) + populate()-equivalent hydration
+  reference-data/
+    duel-links-skills.json    # Checked-in Duel Links skill list (npm run skills:import)
   security.js                 # Rate limiting policies (auth, write, match actions)
   validation.js                # Zod schemas + validateRequest middleware
 card-database/
@@ -187,7 +193,27 @@ This logic (in `server/api-server.js`) is pure JS operating on an in-memory tour
 
 The decklist form (`#decklists` section) already enforces per-format size limits (TCG/Master Duel 40–60 main, Duel Links 20–30 main), a flat 3-copy cap for all games, and TCG banlist enforcement (`validateDecklistLegality`, `getMaxAllowedCopiesByBanStatus`) by resolving each card through the local card database. `.ydk` import/export (`exportCurrentDeckAsYdk`, `exportDecklistByIdAsYdk`, `importDeckFromTextPrompt`) and a Monster/Spell/Trap/Total stat line (`renderDeckStats`) round it out.
 
-**Duel Links skills:** a Duel Links deck also equips a Skill, so the form shows a skills block (`#decklist-skills-group`) whenever Game Format is `duel-links` and hides it -- clearing whatever was entered -- for the other games. Skills are *not* cards: they have no YGOPRODeck entry, so the input is free text with a `<datalist>` of common skills (`COMMON_DUEL_LINKS_SKILLS`) rather than a card-database lookup. They're stored on the decklist as one newline-separated string (`skills`), capped at 3 entries, and `normalizeDeckSkills()` in `server/api-server.js` drops the field entirely for non-Duel-Links games -- including when a PATCH switches an existing deck's `game` -- so `game` stays the single source of truth for whether a deck has skills. A Duel Links deck saved with no skill is a legality *warning*, not an error, so decks created before the field existed stay editable.
+**Duel Links skills:** a Duel Links deck also equips a Skill, so the form shows a skills block (`#decklist-skills-group`) whenever Game Format is `duel-links` and hides it -- clearing whatever was entered -- for the other games. They're stored on the decklist as one newline-separated string (`skills`), capped at 3 entries, and `normalizeDeckSkills()` in `server/api-server.js` drops the field entirely for non-Duel-Links games -- including when a PATCH switches an existing deck's `game` -- so `game` stays the single source of truth for whether a deck has skills. A Duel Links deck saved with no skill is a legality *warning*, not an error, so decks created before the field existed stay editable.
+
+### Duel Links Skill Catalog
+
+Skills are **not** cards -- they're a mobile-game concept with no YGOPRODeck entry, so they can't be resolved through `card-database/` like every other name in the deck builder. They get their own small mirror:
+
+```
+server/reference-data/duel-links-skills.json   # ~1,100 skills: { name, description, rush }
+server/models/duel-links-skills.js             # in-memory load + ranked name search
+scripts/import-duel-links-skills.js            # npm run skills:import
+```
+
+`npm run skills:import` refreshes the JSON from the DuelLinksMeta API (`duellinksmeta.com/api/v1/skills`) -- the same operator-run pattern as `cards:import`, and the only code that ever calls that API. It refuses to overwrite the catalog with a response below `MIN_EXPECTED_SKILLS`, so a truncated fetch can't silently gut the picker.
+
+Two deliberate differences from the card catalog:
+- **The JSON is checked in**, unlike the gitignored `card-database/data/cards.db`. It's ~500KB, so it ships with the source tree and CI deploys need no extra staging step. Note `.gitignore` excludes `server/data/` -- hence `server/reference-data/`, which is *not* ignored.
+- **It's held in memory and scanned linearly**, not put in SQLite. ~1,100 short records have nothing to index that a scan doesn't answer instantly.
+
+The frontend queries `GET /api/duel-links-skills?q=&limit=` as the user types (public/unauthenticated, like the card lookup) rather than downloading the list, and ranks exact > prefix > word-start > substring on the name only -- searching description prose would bury the name matches a player is reaching for.
+
+The catalog is a **picker, not an allowlist**: the skill input stays free text, and a name the catalog doesn't recognize saves with a warning. A skill Konami shipped after the last import has to remain typeable.
 
 ---
 
