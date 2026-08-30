@@ -38,6 +38,8 @@ function itemToDecklist(item) {
     mainDeck: item.mainDeck,
     extraDeck: item.extraDeck,
     sideDeck: item.sideDeck,
+    // Duel Links skills; '' (not undefined) for decks saved before the field existed.
+    skills: item.skills || '',
     isPublic: !!item.isPublic,
     archetype: item.archetype,
     notes: item.notes,
@@ -55,6 +57,7 @@ function toItem(decklist) {
     mainDeck: decklist.mainDeck,
     extraDeck: decklist.extraDeck || '',
     sideDeck: decklist.sideDeck || '',
+    skills: decklist.skills || '',
     isPublic: !!decklist.isPublic,
     archetype: decklist.archetype || '',
     notes: decklist.notes || '',
@@ -71,7 +74,7 @@ async function persist(decklist) {
   await getClient().send(new PutCommand({ TableName: TABLE, Item: toItem(decklist) }));
 }
 
-async function create({ owner, name, game, mainDeck, extraDeck, sideDeck, isPublic, archetype, notes }) {
+async function create({ owner, name, game, mainDeck, extraDeck, sideDeck, skills, isPublic, archetype, notes }) {
   const now = new Date();
   const decklist = attachSave({
     _id: generateId(),
@@ -81,6 +84,7 @@ async function create({ owner, name, game, mainDeck, extraDeck, sideDeck, isPubl
     mainDeck,
     extraDeck: extraDeck || '',
     sideDeck: sideDeck || '',
+    skills: skills || '',
     isPublic: isPublic !== false,
     archetype: archetype || '',
     notes: notes || '',

@@ -42,12 +42,22 @@ const userProfileUpdateBodySchema = z.object({
   avatarUrl: optionalTrimmedString(500)
 }).strict();
 
+// Duel Links decks equip a Skill alongside the cards. Skills aren't cards (they
+// aren't in the YGOPRODeck catalog), so they're stored the same way deck sections
+// are -- one newline-separated string -- rather than as a normalized list. One
+// skill is the common case; the cap leaves room for formats that let players
+// register a small pool and swap between games.
+const MAX_DECK_SKILLS = 3;
+const MAX_DECK_SKILL_NAME_LENGTH = 80;
+const skillsFieldSchema = z.string().trim().max((MAX_DECK_SKILL_NAME_LENGTH + 1) * MAX_DECK_SKILLS);
+
 const createDecklistBodySchema = z.object({
   name: z.string().trim().min(1).max(120),
   game: z.enum(gameEnumValues),
   mainDeck: z.string().trim().min(1).max(12000),
   extraDeck: z.string().trim().max(6000).optional().default(''),
   sideDeck: z.string().trim().max(6000).optional().default(''),
+  skills: skillsFieldSchema.optional().default(''),
   isPublic: z.boolean().optional().default(true),
   archetype: z.string().trim().max(80).optional().default(''),
   notes: z.string().trim().max(1000).optional().default('')
@@ -59,6 +69,7 @@ const updateDecklistBodySchema = z.object({
   mainDeck: z.string().trim().min(1).max(12000).optional(),
   extraDeck: z.string().trim().max(6000).optional(),
   sideDeck: z.string().trim().max(6000).optional(),
+  skills: skillsFieldSchema.optional(),
   isPublic: z.boolean().optional(),
   archetype: z.string().trim().max(80).optional(),
   notes: z.string().trim().max(1000).optional()
@@ -157,6 +168,8 @@ const validateRequest = ({ body, params } = {}) => (req, res, next) => {
 
 module.exports = {
   gameEnumValues,
+  MAX_DECK_SKILLS,
+  MAX_DECK_SKILL_NAME_LENGTH,
   tournamentFormatValues,
   objectIdSchema,
   registerBodySchema,
