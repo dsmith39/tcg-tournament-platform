@@ -287,6 +287,23 @@ The stack itself:
 
 ---
 
+## Staff Agents
+
+A CEO and five staff agents work on this project, built 2026-10-19 on the same pattern as Mile High Web Studio's. Charters are in `.claude/agents/`, the slash commands in `.claude/skills/`, and the shared rules, data ownership, and report format in [`docs/staff-handbook.md`](docs/staff-handbook.md).
+
+| Command | Role |
+|---|---|
+| `/ceo` | Whole product: weekly review, decisions, setup interview |
+| `/dev` | Features and fixes on a branch |
+| `/qa` | Branch review, tournament logic audit, test gaps |
+| `/ops` | CI and deploy health, dependencies, cost, security |
+| `/cards` | Card catalog, banlist data, Duel Links skills |
+| `/growth` | Organizers, players, SEO, feedback |
+
+`node scripts/ceo/snapshot.mjs` prints the numbers they work from. Their state lives in the gitignored `ops/` (see `ops/README.md`). They draft and recommend only: a merge to `main` deploys to production, so merging, deploying, and anything touching AWS or live data stays with Dillon. Start with `/ceo setup`.
+
+---
+
 ## Legacy Directories
 
 - `tcg-backend/` — original monolithic prototype, kept for reference but not active
