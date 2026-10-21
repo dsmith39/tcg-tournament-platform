@@ -289,18 +289,9 @@ The stack itself:
 
 ## Staff Agents
 
-A CEO and five staff agents work on this project, built 2026-10-19 on the same pattern as Mile High Web Studio's. Charters are in `.claude/agents/`, the slash commands in `.claude/skills/`, and the shared rules, data ownership, and report format in [`docs/staff-handbook.md`](docs/staff-handbook.md).
+The Duel Club's team (a manager, who was the CEO, plus dev, qa, ops, cards, and growth) moved to the workspace org on 2026-10-21: charters in `../.claude/agents/duelclub-*.md`, rules, data ownership, and the report format in `../.claude/teams/duelclub/handbook.md`. Run Claude from the workspace root: `/duelclub` for the manager and `/duelclub <role> <task>` for an employee.
 
-| Command | Role |
-|---|---|
-| `/ceo` | Whole product: weekly review, decisions, setup interview |
-| `/dev` | Features and fixes on a branch |
-| `/qa` | Branch review, tournament logic audit, test gaps |
-| `/ops` | CI and deploy health, dependencies, cost, security |
-| `/cards` | Card catalog, banlist data, Duel Links skills |
-| `/growth` | Organizers, players, SEO, feedback |
-
-`node scripts/ceo/snapshot.mjs` prints the numbers they work from. Their state lives in the gitignored `ops/` (see `ops/README.md`). They draft and recommend only: a merge to `main` deploys to production, so merging, deploying, and anything touching AWS or live data stays with Dillon. Start with `/ceo setup`.
+`node scripts/ceo/snapshot.mjs` still prints the numbers they work from, and their state still lives in the gitignored `ops/` (see `ops/README.md`). The rules in the team handbook hold. Start with `/duelclub setup`.
 
 ---
 
