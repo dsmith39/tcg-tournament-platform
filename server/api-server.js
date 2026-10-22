@@ -80,6 +80,15 @@ function normalizeDeckSkills(skills, game) {
 function registerApi(app) {
   // Global middleware is intentionally kept minimal here so route handlers remain explicit.
   //
+  // Deployed, every request reaches Express through API Gateway and the Lambda
+  // Web Adapter, so the socket peer is always the adapter on localhost. API
+  // Gateway appends the real client address to X-Forwarded-For; trusting
+  // exactly one hop makes req.ip that rightmost entry, so the IP keyed rate
+  // limiters (server/security.js) get one bucket per client instead of one
+  // shared bucket. Never widen this to `true` or a subnet: entries left of the
+  // last hop are client supplied and would let anyone pick their own bucket.
+  app.set('trust proxy', 1);
+  //
   // Deployed, the frontend (theduelclub.com) and API (api.theduelclub.com) are
   // different origins, and auth relies on cookies -- credentialed cross-origin
   // fetches need the server to echo back a specific allowed origin (not `*`)
