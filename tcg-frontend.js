@@ -1227,7 +1227,8 @@ async function copyDecklistShareLink(decklistId) {
 }
 
 function getMaxAllowedCopiesByBanStatus(status) {
-    if (status === 'Banned') return 0;
+    // YGOPRODeck reports TCG bans as 'Forbidden'; keep 'Banned' for older data.
+    if (status === 'Forbidden' || status === 'Banned') return 0;
     if (status === 'Limited') return 1;
     if (status === 'Semi-Limited') return 2;
     return 3;
