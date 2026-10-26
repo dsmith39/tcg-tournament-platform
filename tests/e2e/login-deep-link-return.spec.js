@@ -32,8 +32,15 @@ async function setupLoggedOut(page) {
     });
   });
 
+  // Locally /config.js falls back to the HTML shell, which throws
+  // "Unexpected token '<'" on every load (expected, see the comment in
+  // tcg-frontend-updated.html). Anything else, like the old ReferenceError,
+  // counts.
   const pageErrors = [];
-  page.on('pageerror', (error) => pageErrors.push(error.message));
+  page.on('pageerror', (error) => {
+    if (error.message.includes("Unexpected token '<'")) return;
+    pageErrors.push(error.message);
+  });
   page.on('dialog', (dialog) => dialog.accept());
 
   return { state, pageErrors };
