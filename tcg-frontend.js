@@ -27,6 +27,10 @@ let editingDecklistId = null;
 // Cancel return the player to that tournament.
 let decklistBuilderBaseline = '';
 let decklistBuilderReturnTournamentId = null;
+// A logged out visit to a gated page (/decklists/new, /tournaments/create, ...)
+// is sent to login; this remembers the path and query so login or signup can
+// return there. Cleared as soon as the player leaves the auth page.
+let pendingAuthReturnPath = null;
 const DECKLIST_DISCARD_PROMPT = 'Discard this deck? Your unsaved changes will be lost.';
 let deckBuilder = { main: [], extra: [], side: [] };
 // Duel Links skills live outside deckBuilder: a skill is not a card, so it has no
@@ -2505,7 +2509,7 @@ async function renderRouteFromLocation(options = {}) {
 
     if (route.type === 'create') {
         if (!currentUser) {
-            goToAuth('login', { replaceHistory: true });
+            goToAuthAndReturn();
             return;
         }
         switchSection('create', { updateUrl: false, skipAuthPrompt: true });
@@ -2514,7 +2518,7 @@ async function renderRouteFromLocation(options = {}) {
 
     if (route.type === 'decklists') {
         if (!currentUser) {
-            goToAuth('login', { replaceHistory: true });
+            goToAuthAndReturn();
             return;
         }
         switchSection('decklists', { updateUrl: false, skipAuthPrompt: true });
@@ -2523,7 +2527,7 @@ async function renderRouteFromLocation(options = {}) {
 
     if (route.type === 'decklist-new') {
         if (!currentUser) {
-            goToAuth('login', { replaceHistory: true });
+            goToAuthAndReturn();
             return;
         }
         const tournamentId = new URLSearchParams(window.location.search).get('tournament');
@@ -2533,7 +2537,7 @@ async function renderRouteFromLocation(options = {}) {
 
     if (route.type === 'decklist-edit' && route.id) {
         if (!currentUser) {
-            goToAuth('login', { replaceHistory: true });
+            goToAuthAndReturn();
             return;
         }
         await editDecklist(route.id, { updateUrl: false, skipDiscardCheck: true });
@@ -2547,7 +2551,7 @@ async function renderRouteFromLocation(options = {}) {
 
     if (route.type === 'admin') {
         if (!currentUser) {
-            goToAuth('login', { replaceHistory: true });
+            goToAuthAndReturn();
             return;
         }
         switchSection('admin', { updateUrl: false, skipAuthPrompt: true });
@@ -2573,6 +2577,34 @@ async function renderRouteFromLocation(options = {}) {
     updateBrowserUrl('/', { replaceHistory: true });
 }
 
+// Sends a logged out visitor on a gated route to login, remembering the exact
+// path and query they asked for so completeAuthNavigation() can return there.
+function goToAuthAndReturn() {
+    pendingAuthReturnPath = `${window.location.pathname}${window.location.search}`;
+    goToAuth('login', { replaceHistory: true });
+}
+
+// After a successful login or signup: go back to the gated page that sent the
+// player to login, or to the dashboard when there wasn't one.
+async function completeAuthNavigation() {
+    const returnPath = pendingAuthReturnPath;
+    pendingAuthReturnPath = null;
+
+    if (!returnPath) {
+        showDashboard();
+        return;
+    }
+
+    applyAuthenticatedNavState();
+    updateBrowserUrl(returnPath, { replaceHistory: true });
+    try {
+        await renderRouteFromLocation({ replaceHistory: true });
+    } catch (error) {
+        console.error('Unable to reopen the requested page after login.', error);
+        showDashboard();
+    }
+}
+
 function getActiveSectionId() {
     const activeSection = document.querySelector('section.active');
     return activeSection ? activeSection.id : null;
@@ -2589,6 +2621,10 @@ function activateSection(sectionId, trackHistory = true) {
     }
 
     document.querySelectorAll('section').forEach((s) => s.classList.remove('active'));
+
+    if (sectionId !== 'auth') {
+        pendingAuthReturnPath = null;
+    }
 
     const section = document.getElementById(sectionId);
     if (!section) return;
@@ -2940,6 +2976,7 @@ async function login(buttonEl = null) {
     const errorDiv = document.getElementById('login-error');
     const loginBtn = buttonEl || document.querySelector('#login-form button.btn');
     const originalLoginText = loginBtn ? loginBtn.textContent : 'Login';
+    let authenticated = false;
 
     if (loginBtn) {
         loginBtn.disabled = true;
@@ -2964,9 +3001,7 @@ async function login(buttonEl = null) {
         if (response.ok) {
             persistAccessToken(data.token);
             currentUser = data.user;
-            setLoadingScreenMessage('Loading dashboard...');
-            showDashboard();
-            await openDeepLinkedDeckIfPresent();
+            authenticated = true;
         } else {
             errorDiv.textContent = data.error || 'Login failed';
         }
@@ -2979,6 +3014,12 @@ async function login(buttonEl = null) {
             loginBtn.textContent = originalLoginText;
         }
     }
+
+    // Outside the try: a problem opening the next page is not a login failure,
+    // so it must never show up as "Network error" on the auth form.
+    if (authenticated) {
+        await completeAuthNavigation();
+    }
 }
 
 async function signup(buttonEl = null) {
@@ -2988,6 +3029,7 @@ async function signup(buttonEl = null) {
     const errorDiv = document.getElementById('signup-error');
     const signupBtn = buttonEl || document.querySelector('#signup-form button.btn');
     const originalSignupText = signupBtn ? signupBtn.textContent : 'Sign Up';
+    let authenticated = false;
 
     if (signupBtn) {
         signupBtn.disabled = true;
@@ -3012,9 +3054,7 @@ async function signup(buttonEl = null) {
         if (response.ok) {
             persistAccessToken(data.token);
             currentUser = data.user;
-            setLoadingScreenMessage('Loading dashboard...');
-            showDashboard();
-            await openDeepLinkedDeckIfPresent();
+            authenticated = true;
         } else {
             errorDiv.textContent = data.error || 'Signup failed';
         }
@@ -3026,6 +3066,10 @@ async function signup(buttonEl = null) {
             signupBtn.disabled = false;
             signupBtn.textContent = originalSignupText;
         }
+    }
+
+    if (authenticated) {
+        await completeAuthNavigation();
     }
 }
 
