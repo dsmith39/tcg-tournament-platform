@@ -101,6 +101,14 @@ nav {
     align-items: center;
 }
 
+/* Logged in, the nav carries 11 items; a 2rem gap pushes Logout past the
+   edge of a 1280px screen, so tighten it until there's room. */
+@media (max-width: 1440px) {
+    nav {
+        gap: 0.75rem;
+    }
+}
+
 nav button {
     background: none;
     border: none;
@@ -725,46 +733,35 @@ p {
     margin: 0 auto;
 }
 
-.decklist-modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(15, 23, 42, 0.5);
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding: 5vh 1rem;
-    overflow-y: auto;
-    z-index: 260;
+/* Deck builder page (/decklists/new, /decklists/<id>/edit). It used to be a
+   modal over My Decklists; as a page it has its own URL and survives refresh.
+   The back button, heading, notice and form share one centered column. */
+.decklist-builder-column {
+    max-width: 760px;
+    margin: 0 auto;
 }
 
-.decklist-modal-overlay.hidden {
-    display: none;
+#decklist-form-close-btn {
+    margin-bottom: 1rem;
 }
 
-.decklist-modal {
+.decklist-builder-context {
+    margin: 0 0 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border-color);
+    border-left: 4px solid var(--primary-color);
+    border-radius: 8px;
+    background: var(--light-bg);
+    color: var(--text-primary);
+}
+
+.decklist-builder-page {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 10px;
     padding: 1.25rem;
-    max-width: 720px;
     width: 100%;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-}
-
-.decklist-modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.75rem;
-}
-
-.decklist-modal-header h3 {
-    margin: 0;
-}
-
-.decklist-modal-header #decklist-form-close-btn {
-    margin: 0;
+    box-sizing: border-box;
 }
 
 .deck-image-grid {
@@ -1065,6 +1062,10 @@ footer {
 
     .deck-builder-controls {
         grid-template-columns: 1fr;
+    }
+
+    .decklist-builder-page {
+        padding: 0.85rem;
     }
 
     .tournament-actions {

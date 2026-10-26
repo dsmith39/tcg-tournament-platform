@@ -20,6 +20,14 @@ let currentFormat = 'all';
 let sectionHistory = [];
 let myDecklists = [];
 let editingDecklistId = null;
+// Deck builder page state. The baseline is a fingerprint of the form as it was
+// last loaded or saved; the form is "dirty" when the live fingerprint differs.
+// decklistBuilderReturnTournamentId is set when the builder was opened from a
+// tournament's join prompt (/decklists/new?tournament=<id>), so save, Back and
+// Cancel return the player to that tournament.
+let decklistBuilderBaseline = '';
+let decklistBuilderReturnTournamentId = null;
+const DECKLIST_DISCARD_PROMPT = 'Discard this deck? Your unsaved changes will be lost.';
 let deckBuilder = { main: [], extra: [], side: [] };
 // Duel Links skills live outside deckBuilder: a skill is not a card, so it has no
 // card-database entry, image, or 3-copy quantity rule to share with the sections.
@@ -2413,6 +2421,10 @@ function getPathForSection(sectionId) {
         return `/users/${encodeURIComponent(String(currentProfileUserId))}`;
     }
 
+    if (sectionId === 'decklist-builder') {
+        return getDecklistBuilderPath();
+    }
+
     const map = {
         landing: '/',
         auth: '/auth/login',
@@ -2451,6 +2463,13 @@ function getRouteFromLocation() {
 
     const tournamentMatch = pathname.match(/^\/tournaments\/([^/]+)$/);
     if (tournamentMatch) return { type: 'tournament-detail', id: decodeURIComponent(tournamentMatch[1]) };
+
+    // Builder routes are matched before the /decklists/<id> detail route, or
+    // "new" would be read as a deck id.
+    if (pathname === '/decklists/new') return { type: 'decklist-new' };
+
+    const decklistEditMatch = pathname.match(/^\/decklists\/([^/]+)\/edit$/);
+    if (decklistEditMatch) return { type: 'decklist-edit', id: decodeURIComponent(decklistEditMatch[1]) };
 
     const decklistMatch = pathname.match(/^\/decklists\/([^/]+)$/);
     if (decklistMatch) return { type: 'decklist-detail', id: decodeURIComponent(decklistMatch[1]) };
@@ -2502,6 +2521,25 @@ async function renderRouteFromLocation(options = {}) {
         return;
     }
 
+    if (route.type === 'decklist-new') {
+        if (!currentUser) {
+            goToAuth('login', { replaceHistory: true });
+            return;
+        }
+        const tournamentId = new URLSearchParams(window.location.search).get('tournament');
+        await openDecklistForm({ tournamentId, updateUrl: false, skipDiscardCheck: true });
+        return;
+    }
+
+    if (route.type === 'decklist-edit' && route.id) {
+        if (!currentUser) {
+            goToAuth('login', { replaceHistory: true });
+            return;
+        }
+        await editDecklist(route.id, { updateUrl: false, skipDiscardCheck: true });
+        return;
+    }
+
     if (route.type === 'card-lookup' || route.type === 'meta-tracker' || route.type === 'lp-calc') {
         switchSection(route.type, { updateUrl: false, skipAuthPrompt: true });
         return;
@@ -2550,8 +2588,6 @@ function activateSection(sectionId, trackHistory = true) {
         }
     }
 
-    hideDecklistFormOverlay();
-
     document.querySelectorAll('section').forEach((s) => s.classList.remove('active'));
 
     const section = document.getElementById(sectionId);
@@ -2598,6 +2634,12 @@ function goBack() {
             continue;
         }
 
+        // The builder is a form, not a place to return to: going "back" into it
+        // would show an empty or stale deck.
+        if (previousSection === 'decklist-builder') {
+            continue;
+        }
+
         if (previousSection === 'dashboard' && !currentUser) {
             showLanding();
             return;
@@ -2625,6 +2667,7 @@ function applyAuthenticatedNavState() {
     document.getElementById('dashboard-btn').style.display = 'block';
     document.getElementById('create-btn').style.display = 'block';
     document.getElementById('decklists-btn').style.display = 'block';
+    document.getElementById('deck-builder-btn').style.display = 'block';
     document.getElementById('profile-btn').style.display = 'block';
     document.getElementById('notifications-btn').style.display = 'block';
     document.getElementById('logout-btn').style.display = 'block';
@@ -3000,7 +3043,8 @@ async function logout() {
     currentUser = null;
     sectionHistory = [];
     myDecklists = [];
-    editingDecklistId = null;
+    resetDecklistForm();
+    decklistBuilderReturnTournamentId = null;
     currentTournamentDetailId = null;
     currentProfileUserId = null;
     showLanding();
@@ -3064,7 +3108,7 @@ function switchSection(sectionId, options = {}) {
     const updateUrl = options.updateUrl !== false;
     const replaceHistory = options.replaceHistory === true;
 
-    if ((sectionId === 'create' || sectionId === 'decklists') && !currentUser) {
+    if ((sectionId === 'create' || sectionId === 'decklists' || sectionId === 'decklist-builder') && !currentUser) {
         if (!skipAuthPrompt) {
             alert('You must create an account and log in to access this section.');
         }
@@ -3343,7 +3387,7 @@ function createTournamentListItem(tournament, publicView = false) {
 async function joinTournament(id, tournamentGame = null) {
     if (!requireAuth('join tournaments')) return;
 
-    const selectedDecklist = await promptDecklistSelectionForJoin(tournamentGame);
+    const selectedDecklist = await promptDecklistSelectionForJoin(tournamentGame, id);
     if (!selectedDecklist) return;
 
     try {
@@ -3388,25 +3432,150 @@ async function loadMyDecklists(options = {}) {
     return myDecklists;
 }
 
-function showDecklistFormOverlay() {
-    const overlay = document.getElementById('decklist-form-overlay');
-    if (overlay) overlay.classList.remove('hidden');
+// --- Deck builder page ---
+//
+// The builder lives on its own section (#decklist-builder) at /decklists/new
+// and /decklists/<id>/edit. Leaving it with unsaved changes asks once, whether
+// by the Back button, a nav link, browser back, or closing the tab.
+
+function getDecklistBuilderPath() {
+    if (editingDecklistId) {
+        return `/decklists/${encodeURIComponent(String(editingDecklistId))}/edit`;
+    }
+    if (decklistBuilderReturnTournamentId) {
+        return `/decklists/new?tournament=${encodeURIComponent(String(decklistBuilderReturnTournamentId))}`;
+    }
+    return '/decklists/new';
 }
 
-function hideDecklistFormOverlay() {
-    const overlay = document.getElementById('decklist-form-overlay');
-    if (overlay) overlay.classList.add('hidden');
+function getDecklistFormFingerprint() {
+    const valueOf = (id) => document.getElementById(id)?.value || '';
+    return JSON.stringify({
+        name: valueOf('decklist-name'),
+        archetype: valueOf('decklist-archetype'),
+        game: valueOf('decklist-game'),
+        notes: valueOf('decklist-notes'),
+        isPublic: !!document.getElementById('decklist-public')?.checked,
+        main: serializeDeckSection(deckBuilder.main),
+        extra: serializeDeckSection(deckBuilder.extra),
+        side: serializeDeckSection(deckBuilder.side),
+        skills: serializeDeckSkills()
+    });
 }
 
-function openDecklistForm() {
+function markDecklistFormClean() {
+    decklistBuilderBaseline = getDecklistFormFingerprint();
+}
+
+function isDecklistFormDirty() {
+    if (getActiveSectionId() !== 'decklist-builder') return false;
+    return getDecklistFormFingerprint() !== decklistBuilderBaseline;
+}
+
+// Returns true when it's fine to leave (or reset) the builder. Asks once; on
+// OK the form is marked clean so the navigation that follows doesn't ask again.
+function confirmDiscardDecklistChanges() {
+    if (!isDecklistFormDirty()) return true;
+    if (!confirm(DECKLIST_DISCARD_PROMPT)) return false;
+    markDecklistFormClean();
+    return true;
+}
+
+function renderDecklistBuilderChrome(tournament = null) {
+    const backBtn = document.getElementById('decklist-form-close-btn');
+    if (backBtn) {
+        backBtn.textContent = decklistBuilderReturnTournamentId ? '← Back to Tournament' : '← Back to My Decklists';
+    }
+
+    const context = document.getElementById('decklist-builder-context');
+    if (context) {
+        if (decklistBuilderReturnTournamentId && tournament) {
+            context.textContent = `Building a deck for ${tournament.name || 'this tournament'}. Save it and you'll go back to the tournament to join.`;
+            context.hidden = false;
+        } else {
+            context.textContent = '';
+            context.hidden = true;
+        }
+    }
+}
+
+function showDecklistBuilderSection(options = {}) {
+    if (options.updateUrl === false) {
+        activateSection('decklist-builder', true);
+        return;
+    }
+    switchSection('decklist-builder', { replaceHistory: options.replaceHistory === true });
+}
+
+// Opens a fresh builder. options.tournamentId comes from a join prompt (or a
+// refresh of /decklists/new?tournament=<id>): the game is preset and saving
+// returns to that tournament. A tournament id that doesn't load is dropped.
+async function openDecklistForm(options = {}) {
     if (!requireAuth('create decklists')) return;
+    if (options.skipDiscardCheck !== true && !confirmDiscardDecklistChanges()) return;
+
     resetDecklistForm();
-    showDecklistFormOverlay();
+    decklistBuilderReturnTournamentId = options.tournamentId ? String(options.tournamentId) : null;
+    renderDecklistBuilderChrome();
+    showDecklistBuilderSection(options);
+
+    if (!decklistBuilderReturnTournamentId) return;
+
+    const tournamentId = decklistBuilderReturnTournamentId;
+    let tournament = null;
+    try {
+        const response = await fetch(`${API_URL}/tournaments/${encodeURIComponent(tournamentId)}`, { suppressLoading: true });
+        if (response.ok) {
+            tournament = await response.json();
+        }
+    } catch (error) {
+        tournament = null;
+    }
+
+    // The player may have moved on while the tournament loaded.
+    if (decklistBuilderReturnTournamentId !== tournamentId || getActiveSectionId() !== 'decklist-builder') return;
+
+    if (!tournament) {
+        decklistBuilderReturnTournamentId = null;
+        renderDecklistBuilderChrome();
+        updateBrowserUrl('/decklists/new', { replaceHistory: true });
+        return;
+    }
+
+    // Preset the game only if the player hasn't started filling the form in.
+    const gameSelect = document.getElementById('decklist-game');
+    if (!isDecklistFormDirty() && gameSelect && tournament.game) {
+        gameSelect.value = tournament.game;
+        updateDecklistSkillsVisibility();
+        markDecklistFormClean();
+    }
+    renderDecklistBuilderChrome(tournament);
 }
 
+// Back button on the builder page.
 function closeDecklistForm() {
-    hideDecklistFormOverlay();
+    if (!confirmDiscardDecklistChanges()) return;
+
+    const returnTournamentId = decklistBuilderReturnTournamentId;
+    decklistBuilderReturnTournamentId = null;
     resetDecklistForm();
+
+    if (returnTournamentId) {
+        updateBrowserUrl(`/tournaments/${encodeURIComponent(returnTournamentId)}`, { replaceHistory: true });
+        viewTournament(returnTournamentId, { updateUrl: false });
+        return;
+    }
+
+    switchSection('decklists', { replaceHistory: true });
+}
+
+// "Clear" on the builder: empties the form and drops edit mode, keeping any
+// tournament the builder was opened for.
+function clearDecklistForm() {
+    resetDecklistForm();
+    if (getActiveSectionId() === 'decklist-builder') {
+        syncUrlToSection('decklist-builder', { replaceHistory: true });
+    }
 }
 
 function resetDecklistForm() {
@@ -3435,12 +3604,36 @@ function resetDecklistForm() {
     hideSkillSuggestions();
     updateDecklistSkillsVisibility();
     renderDeckBuilder();
+    markDecklistFormClean();
 }
 
-async function editDecklist(decklistId) {
-    const decklist = myDecklists.find((item) => item._id === decklistId);
-    if (!decklist) return;
+// Opens the builder on one of the player's own decks. On a cold deep link to
+// /decklists/<id>/edit myDecklists is empty, so it loads first; an id that
+// isn't the player's goes to My Decklists with a notice, never a blank form
+// that could save over someone else's deck.
+async function editDecklist(decklistId, options = {}) {
+    if (!requireAuth('edit decklists')) return;
+    if (options.skipDiscardCheck !== true && !confirmDiscardDecklistChanges()) return;
 
+    const findDeck = () => myDecklists.find((item) => getEntityId(item) === decklistId);
+    let decklist = findDeck();
+    if (!decklist) {
+        try {
+            await loadMyDecklists();
+        } catch (error) {
+            // Falls through to the not found path below.
+        }
+        decklist = findDeck();
+    }
+
+    if (!decklist) {
+        addNotification('That decklist could not be opened for editing. It may have been deleted, or it belongs to someone else.', 'warning');
+        switchSection('decklists', { replaceHistory: true });
+        return;
+    }
+
+    resetDecklistForm();
+    decklistBuilderReturnTournamentId = null;
     editingDecklistId = decklistId;
 
     document.getElementById('decklist-name').value = decklist.name || '';
@@ -3455,20 +3648,26 @@ async function editDecklist(decklistId) {
     setDeckSkillFeedback('');
     updateDecklistSkillsVisibility();
 
+    document.getElementById('decklist-form-title').textContent = 'Edit Decklist';
+    document.getElementById('decklist-submit-btn').textContent = 'Update Decklist';
+    renderDecklistBuilderChrome();
+    markDecklistFormClean();
+    showDecklistBuilderSection(options);
+
     setDeckCardFeedback('Loading saved cards...', 'success');
-    deckBuilder = {
+    const hydrated = {
         main: await hydrateDeckSectionFromText(decklist.mainDeck || ''),
         extra: await hydrateDeckSectionFromText(decklist.extraDeck || ''),
         side: await hydrateDeckSectionFromText(decklist.sideDeck || '')
     };
+
+    // The player may have left or opened another deck while cards loaded.
+    if (editingDecklistId !== decklistId) return;
+
+    deckBuilder = hydrated;
     renderDeckBuilder();
     setDeckCardFeedback('');
-
-    document.getElementById('decklist-form-title').textContent = 'Edit Decklist';
-    document.getElementById('decklist-submit-btn').textContent = 'Update Decklist';
-
-    switchSection('decklists');
-    showDecklistFormOverlay();
+    markDecklistFormClean();
 }
 
 async function deleteDecklist(decklistId) {
@@ -3489,7 +3688,7 @@ async function deleteDecklist(decklistId) {
         }
 
         if (editingDecklistId === decklistId) {
-            closeDecklistForm();
+            resetDecklistForm();
         }
 
         await renderDecklists();
@@ -3623,7 +3822,7 @@ async function renderDecklists(options = {}) {
     }
 }
 
-async function promptDecklistSelectionForJoin(tournamentGame = null) {
+async function promptDecklistSelectionForJoin(tournamentGame = null, tournamentId = null) {
     await loadMyDecklists();
 
     const availableDecklists = tournamentGame
@@ -3632,8 +3831,9 @@ async function promptDecklistSelectionForJoin(tournamentGame = null) {
 
     if (availableDecklists.length === 0) {
         alert('Please create at least one decklist for this format before joining.');
-        switchSection('decklists');
-        openDecklistForm();
+        // Opens /decklists/new?tournament=<id>; saving brings the player back
+        // to this tournament to join (joining stays their click).
+        await openDecklistForm({ tournamentId });
         return null;
     }
 
@@ -5182,9 +5382,27 @@ if (decklistForm) {
                 return;
             }
 
-            closeDecklistForm();
-            await renderDecklists();
-            addNotification('Decklist saved successfully.', 'success');
+            // Saving lands on the saved deck's own page, or back on the
+            // tournament when the builder came from a join prompt. The builder's
+            // history entry is replaced, so browser back from there doesn't
+            // reopen a half filled builder.
+            const savedDecklistId = isEditing ? editingDecklistId : getEntityId(data);
+            const returnTournamentId = decklistBuilderReturnTournamentId;
+            decklistBuilderReturnTournamentId = null;
+            resetDecklistForm();
+
+            if (returnTournamentId) {
+                updateBrowserUrl(`/tournaments/${encodeURIComponent(returnTournamentId)}`, { replaceHistory: true });
+                addNotification('Deck saved. You can join now.', 'success');
+                await viewTournament(returnTournamentId, { updateUrl: false });
+            } else if (savedDecklistId) {
+                updateBrowserUrl(`/decklists/${encodeURIComponent(savedDecklistId)}`, { replaceHistory: true });
+                addNotification('Decklist saved successfully.', 'success');
+                await viewDecklist(savedDecklistId, { updateUrl: false });
+            } else {
+                switchSection('decklists', { replaceHistory: true });
+                addNotification('Decklist saved successfully.', 'success');
+            }
         } catch (error) {
             alert('Network error while saving decklist');
         } finally {
@@ -5719,18 +5937,38 @@ if (document.getElementById('decklist-form')) {
     resetDecklistForm();
 }
 
-document.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape') return;
-    const overlay = document.getElementById('decklist-form-overlay');
-    if (overlay && !overlay.classList.contains('hidden')) {
-        closeDecklistForm();
+// Leaving the deck builder with unsaved changes asks first. Nav buttons are
+// caught in the capture phase, before their own onclick runs. Notifications
+// only opens a panel, so it's left alone.
+document.getElementById('nav-menu')?.addEventListener('click', (event) => {
+    const button = event.target.closest('button');
+    if (!button || button.id === 'notifications-btn') return;
+    if (!confirmDiscardDecklistChanges()) {
+        event.preventDefault();
+        event.stopPropagation();
     }
+}, true);
+
+// Closing or reloading the tab with unsaved changes gets the browser's warning.
+window.addEventListener('beforeunload', (event) => {
+    if (!isDecklistFormDirty()) return;
+    event.preventDefault();
+    event.returnValue = '';
 });
 
 initializeRealtimeSocket();
 startLivePolling();
 
 window.addEventListener('popstate', async () => {
+    // popstate can't be cancelled, only undone: if the player keeps editing,
+    // put the builder's URL back on top of history.
+    if (isDecklistFormDirty()) {
+        if (!confirm(DECKLIST_DISCARD_PROMPT)) {
+            window.history.pushState({}, '', getDecklistBuilderPath());
+            return;
+        }
+        markDecklistFormClean();
+    }
     await renderRouteFromLocation({ replaceHistory: true });
 });
 
