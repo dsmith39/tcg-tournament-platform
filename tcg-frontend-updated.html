@@ -21,6 +21,7 @@
                 <button onclick="switchSection('dashboard')" id="dashboard-btn" style="display:none;">Dashboard</button>
                 <button onclick="switchSection('create')" id="create-btn" style="display:none;">Create</button>
                 <button onclick="switchSection('decklists')" id="decklists-btn" style="display:none;">Decklists</button>
+                <button onclick="openDecklistForm()" id="deck-builder-btn" style="display:none;">Deck Builder</button>
                 <button onclick="viewUserProfile(getCurrentUserId())" id="profile-btn" style="display:none;">My Profile</button>
                 <button onclick="switchSection('admin')" id="admin-btn" style="display:none;">Admin</button>
                 <button onclick="toggleNotificationsPanel()" id="notifications-btn" style="display:none;">Notifications</button>
@@ -240,13 +241,16 @@
             <div class="decklist-grid" id="decklist-list">
                 <div class="empty-state">Loading decklists...</div>
             </div>
+        </section>
 
-            <div id="decklist-form-overlay" class="decklist-modal-overlay hidden" onclick="if (event.target === this) closeDecklistForm();">
-                <div class="decklist-modal">
-                    <div class="decklist-modal-header">
-                        <h3 id="decklist-form-title">Create Decklist</h3>
-                        <button type="button" class="btn secondary" id="decklist-form-close-btn" onclick="closeDecklistForm()">&times; Close</button>
-                    </div>
+        <!-- Deck Builder Section: create and edit a decklist on its own page.
+             Routes: /decklists/new (optionally ?tournament=<id>) and /decklists/<id>/edit. -->
+        <section id="decklist-builder">
+            <div class="decklist-builder-column">
+                <button type="button" class="btn secondary" id="decklist-form-close-btn" onclick="closeDecklistForm()">&larr; Back to My Decklists</button>
+                <h1 id="decklist-form-title">Create Decklist</h1>
+                <p id="decklist-builder-context" class="decklist-builder-context" hidden></p>
+                <div class="decklist-builder-page">
                     <form id="decklist-form">
                         <div class="form-group">
                             <label for="decklist-name">Decklist Name</label>
@@ -366,7 +370,7 @@
                         <input type="file" id="decklist-ydk-file" accept=".ydk,text/plain" style="display:none;">
 
                         <button type="submit" class="btn" id="decklist-submit-btn">Save Decklist</button>
-                        <button type="button" class="btn secondary" onclick="resetDecklistForm()">Clear</button>
+                        <button type="button" class="btn secondary" onclick="clearDecklistForm()">Clear</button>
                     </form>
                 </div>
             </div>
