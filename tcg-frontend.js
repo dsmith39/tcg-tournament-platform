@@ -3667,7 +3667,26 @@ async function editDecklist(decklistId, options = {}) {
     deckBuilder = hydrated;
     renderDeckBuilder();
     setDeckCardFeedback('');
-    markDecklistFormClean();
+    markDecklistSectionsClean();
+}
+
+// After saved cards load, only main/extra/side change in the clean snapshot.
+// Anything the player typed while they loaded (name, notes, ...) stays unsaved.
+function markDecklistSectionsClean() {
+    let baseline;
+    try {
+        baseline = JSON.parse(decklistBuilderBaseline);
+    } catch (error) {
+        baseline = null;
+    }
+    if (!baseline || typeof baseline !== 'object') {
+        markDecklistFormClean();
+        return;
+    }
+    baseline.main = serializeDeckSection(deckBuilder.main);
+    baseline.extra = serializeDeckSection(deckBuilder.extra);
+    baseline.side = serializeDeckSection(deckBuilder.side);
+    decklistBuilderBaseline = JSON.stringify(baseline);
 }
 
 async function deleteDecklist(decklistId) {
