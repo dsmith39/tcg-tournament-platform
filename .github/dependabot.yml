@@ -1,0 +1,27 @@
+# Monthly version updates, grouped so minor and patch bumps arrive as one PR per
+# ecosystem. Every merge to main deploys to production, so one batch a month
+# keeps deploys rare. Major bumps still arrive as their own PRs for review.
+# Security updates are separate: they follow the repo's Dependabot security
+# updates setting, not this schedule.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions-minor-and-patch:
+        update-types:
+          - minor
+          - patch

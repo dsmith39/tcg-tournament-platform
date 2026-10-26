@@ -50,8 +50,8 @@ test.before(async () => {
   await resetTables();
 
   app = express();
-  // Trust proxy headers during tests so X-Forwarded-For can represent different client IPs.
-  app.set('trust proxy', true);
+  // No trust proxy override here: registerApi sets the same one hop policy the
+  // deployed Lambda runs with, so the X-Forwarded-For tests below exercise it.
   registerApi(app);
 
   // Seed the in-memory card catalog (NODE_ENV=test -> :memory: SQLite, see
@@ -704,6 +704,33 @@ test('rate limit flow: auth limiter key is isolated by client ip', async () => {
   assert.notEqual(secondIpResponse.status, 429);
   assert.equal(secondIpResponse.status, 400);
   assert.equal(secondIpResponse.body.error, 'Invalid credentials');
+});
+
+test('rate limit flow: spoofed X-Forwarded-For entries cannot escape the auth bucket', async () => {
+  // registerApi trusts exactly one proxy hop, so only the rightmost entry (the
+  // one API Gateway appends) picks the bucket. A client rotating a fake
+  // leftmost entry on every attempt must still be throttled.
+  assert.equal(app.get('trust proxy'), 1);
+
+  let throttledResponse = null;
+
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    const response = await request(app)
+      .post('/api/auth/login')
+      .set('X-Forwarded-For', `203.0.113.${attempt}, 198.51.100.20`)
+      .send({
+        email: 'nobody@example.com',
+        password: 'wrong-password'
+      });
+
+    if (response.status === 429) {
+      throttledResponse = response;
+      break;
+    }
+  }
+
+  assert.ok(throttledResponse, 'Expected rotating spoofed entries to share one auth bucket');
+  assert.equal(throttledResponse.body.error, 'Too many authentication attempts. Please try again later.');
 });
 
 test('admin: non-admin users are blocked from admin routes', async () => {
