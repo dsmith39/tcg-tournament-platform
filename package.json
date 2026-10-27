@@ -18,7 +18,8 @@
     "cards:import": "node card-database/src/import_cards.js",
     "cards:search": "node card-database/src/search_cards.js",
     "cards:download-images": "node card-database/src/download_card_images.js",
-    "skills:import": "node scripts/import-duel-links-skills.js"
+    "skills:import": "node scripts/import-duel-links-skills.js",
+    "dl-cards:import": "node scripts/import-duel-links-exclusive-cards.js"
   },
   "dependencies": {
     "@aws-sdk/client-apigatewaymanagementapi": "^3.906.0",

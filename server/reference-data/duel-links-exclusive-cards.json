@@ -1,0 +1,2079 @@
+{
+  "meta": {
+    "generatedAt": "2026-10-27T15:18:38.329Z",
+    "sources": {
+      "duelLinks": "https://www.duellinksmeta.com/api/v1/cards",
+      "catalog": "db.ygoprodeck.com/api/v7/cardinfo.php (14645 cards)"
+    },
+    "counts": {
+      "dlReleasedSpeed": 10659,
+      "matchedExact": 10551,
+      "matchedNormalized": 4,
+      "matchedRename": 1,
+      "exclusives": 103
+    },
+    "dlLimitAsOf": "2026-10-27"
+  },
+  "cards": [
+    {
+      "id": "dlx-61667b7625fed9bab2801cc7",
+      "name": "Absurd Stealer",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "WIND",
+      "level": 1,
+      "race": "Machine",
+      "atk": 100,
+      "def": 0,
+      "desc": "When this card is Normal Summoned: Target 1 Level 4 or lower Attack Position monster your opponent controls: its ATK becomes half its current ATK, and if you do, this card's ATK becomes equal to the DEF of that monster until the end of this turn.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "61667b7625fed9bab2801cc7",
+        "dlRelease": "2021-10-13"
+      }
+    },
+    {
+      "id": "dlx-60c2b3a9a0e24f2d54a51422",
+      "name": "Altar of the Bound Deity",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Continuous",
+      "atk": null,
+      "def": null,
+      "desc": "Once per turn, during your Standby Phase: Place 1 Earthbound Immortal Counter on this card for each face-up Defense Position monster on the field. You can send this card with 4 or more Earthbound Immortal Counters to the Graveyard; Special Summon 1 'Earthbound Immortal' monster from your Deck.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3a9a0e24f2d54a51422",
+        "dlRelease": "2016-11-17"
+      }
+    },
+    {
+      "id": "dlx-60c2b3a9a0e24f2d54a51451",
+      "name": "Amazoness Arena",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Field",
+      "atk": null,
+      "def": null,
+      "desc": "When this card is activated: Both players gain 600 LP. At the end of the Damage Step, if a monster battled: The attacking player can pay 100 LP; Inflict 100 damage to the opponent.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3a9a0e24f2d54a51451",
+        "dlRelease": "2020-04-18"
+      }
+    },
+    {
+      "id": "dlx-64c0db322888788c6103976c",
+      "name": "Archfiend Matador",
+      "cardType": "Monster",
+      "type": "Ritual Effect Monster",
+      "frameType": "ritual",
+      "extraDeck": false,
+      "attribute": "DARK",
+      "level": 6,
+      "race": "Warrior",
+      "atk": 0,
+      "def": 0,
+      "desc": "This card can only be Ritual Summoned with the Ritual Spell Card, \"Ritual of the Matador\". This card cannot attack. This card is not destroyed as a result of battle and any Battle Damage to the controller of this card becomes 0. A monster that battles with this card is destroyed at the end of the Damage Step.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "64c0db322888788c6103976c",
+        "dlRelease": "2023-08-01"
+      }
+    },
+    {
+      "id": "dlx-60c2b3a9a0e24f2d54a51575",
+      "name": "Armored Core",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "LIGHT",
+      "level": 4,
+      "race": "Machine",
+      "atk": 1300,
+      "def": 2000,
+      "desc": "(This card is also always treated as a \"B.E.S.\" card) If only your opponent controls a monster, you can Special Summon this card (from your hand).",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3a9a0e24f2d54a51575",
+        "dlRelease": "2021-03-29"
+      }
+    },
+    {
+      "id": "dlx-60c2b3a9a0e24f2d54a515e2",
+      "name": "Attribute Bomb",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Equip",
+      "atk": null,
+      "def": null,
+      "desc": "Activate this card by declaring 1 Attribute. If the equipped monster destroys a monster with that Attribute by battle: Inflict 500 damage to your opponent.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3a9a0e24f2d54a515e2",
+        "dlRelease": "2020-11-16"
+      }
+    },
+    {
+      "id": "dlx-63870be31dfb645f0ff8d22c",
+      "name": "Attribute Chameleon",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Continuous",
+      "atk": null,
+      "def": null,
+      "desc": "You can declare 1 Attribute, then target 1 face-up monster your opponent controls; while this card is on the field, that monster becomes that Attribute until the end of this turn.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "63870be31dfb645f0ff8d22c",
+        "dlRelease": "2022-11-30"
+      }
+    },
+    {
+      "id": "dlx-63870bb28c80f3bbbaaba094",
+      "name": "Attribute Gravity",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Continuous",
+      "atk": null,
+      "def": null,
+      "desc": "All monsters that can attack must attack monsters with the same Attribute, if any.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "63870bb28c80f3bbbaaba094",
+        "dlRelease": "2022-12-01"
+      }
+    },
+    {
+      "id": "dlx-63e1fc2c4b5536b7bbbe1e15",
+      "name": "Attribute Mastery",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Equip",
+      "atk": null,
+      "def": null,
+      "desc": "Activate this card by declaring 1 Attribute. At the start of the Damage Step, if the equipped monster battles a monster with that Attribute: Destroy that monster.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "63e1fc2c4b5536b7bbbe1e15",
+        "dlRelease": "2023-02-27"
+      }
+    },
+    {
+      "id": "dlx-61af1a0f99e211da02ce26ee",
+      "name": "Aurora Draw",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "If you control a \"Meklord Emperor\" monster, and have no other cards in your hand: Draw 2 cards.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "61af1a0f99e211da02ce26ee",
+        "dlRelease": "2021-12-09"
+      }
+    },
+    {
+      "id": "dlx-60c2b3a9a0e24f2d54a51663",
+      "name": "Battle Return",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "During your Battle Phase: Target 1 \"Meklord Emperor\" monster you control; halve its ATK until the end of this turn, and if you do, it can make a second attack during each Battle Phase this turn.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3a9a0e24f2d54a51663",
+        "dlRelease": "2021-05-22"
+      }
+    },
+    {
+      "id": "dlx-60c2b3a9a0e24f2d54a51691",
+      "name": "Beast Burial Ritual",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "Target 1 Beast-Type monster you control; destroy that target, and if you do, draw 2 cards during the next Standby Phase.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3a9a0e24f2d54a51691",
+        "dlRelease": "2020-05-27"
+      }
+    },
+    {
+      "id": "dlx-60c2b3a9a0e24f2d54a5176c",
+      "name": "Blizzard Lizard",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "WATER",
+      "level": 3,
+      "race": "Beast",
+      "atk": 600,
+      "def": 1800,
+      "desc": "If this card is destroyed by battle: Inflict 400 damage to your opponent.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3a9a0e24f2d54a5176c",
+        "dlRelease": "2020-11-21"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a518b3",
+      "name": "Card of Distrain",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "If your opponent controls 2 or more Set cards in their Spell & Trap Zone: Target 1 of those cards; that Set card cannot be activated this turn, also each time your opponent activates a Set card in their Spell & Trap Zone this turn, they take 800 damage immediately after it resolves.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a518b3",
+        "dlRelease": "2019-07-11"
+      }
+    },
+    {
+      "id": "dlx-60c427544893632670281d3c",
+      "name": "Cat Girl",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "EARTH",
+      "level": 4,
+      "race": "Beast",
+      "atk": 1200,
+      "def": 1600,
+      "desc": "When this card is Normal Summoned: You can Special Summon 1 \"Stray Cat Girl\" from your hand or Graveyard, also you cannot Special Summon any monsters with more than 2000 ATK for the rest of this turn. Your opponent's monsters cannot change their battle positions.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c427544893632670281d3c",
+        "dlRelease": "2021-04-30"
+      }
+    },
+    {
+      "id": "dlx-60c427544893632670281d3e",
+      "name": "Cat Girl Magician",
+      "cardType": "Monster",
+      "type": "XYZ Monster",
+      "frameType": "xyz",
+      "extraDeck": true,
+      "attribute": "LIGHT",
+      "level": 4,
+      "race": "Spellcaster",
+      "atk": 2000,
+      "def": 1800,
+      "desc": "2 Level 4 monsters\nOnce per turn, during your Battle Phase: You can detatch 1 material from this card; halve this card's ATK until the end of this turn, also this card can attack your opponent directly this turn.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c427544893632670281d3e",
+        "dlRelease": "2021-04-28"
+      }
+    },
+    {
+      "id": "dlx-63d25df085422e6d2d957eec",
+      "name": "Cat World",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Field",
+      "atk": null,
+      "def": null,
+      "desc": "\"Cat Girl\" or \"Stray Cat\" monsters on the field gain ATK equal to its original ATK.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "63d25df085422e6d2d957eec",
+        "dlRelease": "2023-02-01"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a518e9",
+      "name": "Central Shield",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Equip",
+      "atk": null,
+      "def": null,
+      "desc": "Equip only to a monster you control. You take no battle damage from attacks involving a monster you control, other than the equipped monster.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a518e9",
+        "dlRelease": "2016-11-17"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a518f2",
+      "name": "Chain Close",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "When a card(s) on the field is destroyed by battle or card effect and sent to the Graveyard: Your opponent cannot activate Spell/Trap Cards this turn. Neither player can activate cards or effects in response to this card's activation.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a518f2",
+        "dlRelease": "2020-04-24"
+      }
+    },
+    {
+      "id": "dlx-61af1a76b5f350ae242b5b97",
+      "name": "Chaos Bloom",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "Apply the following effect, based on the number of \"Chaos Bloom\" in your Graveyard.\n● 0: Destroy 1 monster with 1000 or less ATK on the field.\n● 1: Destroy 1 card in the Spell & Trap Zones.\n● 2+: Destroy 1 card on the field.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "61af1a76b5f350ae242b5b97",
+        "dlRelease": "2021-12-09"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a51a0d",
+      "name": "Contaminated Earth",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "If a face-up Level 5 or higher monster(s) you control was destroyed by a card effect this turn: Special Summon 1 \"Earthbound Immortal\" monster from your hand, Deck or Graveyard, but it cannot attack, nor activate its effect this turn.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a51a0d",
+        "dlRelease": "2020-03-31"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a51a33",
+      "name": "Cosmos",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "DARK",
+      "level": 3,
+      "race": "Plant",
+      "atk": 600,
+      "def": 900,
+      "desc": "If you control 2 or more Plant-Type monsters, you can Special Summon this card (from your hand).",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a51a33",
+        "dlRelease": "2021-02-28"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a51a6f",
+      "name": "Crowning of the Emperor",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "Tribute 1 'Toy Soldier'; Special Summon 1 'Toy Emperor' from your hand or Deck.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a51a6f",
+        "dlRelease": "2020-02-13"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a51a9a",
+      "name": "Crystal Slicer",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "Send 1 'Crystal Beast' monster from your Deck to the Graveyard, then target 1 face-up monster your opponent controls; halve the original ATK of that target, also your opponent draws 1 card.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a51a9a",
+        "dlRelease": "2020-02-17"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a51abb",
+      "name": "Cupid's Kiss",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Equip",
+      "atk": null,
+      "def": null,
+      "desc": "At the end of the Damage Step, if the equipped monster you control attacked an opponent's monster with a Maiden Counter, and you took battle damage: Take control of the opponent's monster.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a51abb",
+        "dlRelease": "2016-11-17"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a51b53",
+      "name": "D - Mind",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "If you control no \"Destiny HERO\" monsters: Special Summon 1 Level 3 or lower \"Destiny HERO\" monster from your Deck.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a51b53",
+        "dlRelease": "2020-03-28"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a51be1",
+      "name": "Dark Archetype",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "DARK",
+      "level": 4,
+      "race": "Spellcaster",
+      "atk": 1400,
+      "def": 400,
+      "desc": "When this card is destroyed by battle and sent to the Graveyard: You can Special Summon 1 monster from your Deck with ATK less than or equal to the battle damage you took.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a51be1",
+        "dlRelease": "2019-11-26"
+      }
+    },
+    {
+      "id": "dlx-6475b5c163b9a42713ed53d8",
+      "name": "Dark Arena",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Field",
+      "atk": null,
+      "def": null,
+      "desc": "Both players select the attack targets for their opponent. All face-up monsters on the field must attack when possible.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "6475b5c163b9a42713ed53d8",
+        "dlRelease": "2023-06-01"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a51cd7",
+      "name": "Defense Maiden",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Continuous",
+      "atk": null,
+      "def": null,
+      "desc": "When an opponent's monster declares an attack on a monster you control: You can target 1 'Maiden in Love' you control: switch the attack target to that target.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a51cd7",
+        "dlRelease": "2019-12-16"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a51d7c",
+      "name": "Dimension Equilibrium",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "When a Beast-Type monster you control is destroyed by battle with an opponent's attacking monster and sent to the Graveyard: Target that monster; Special Summon it, and if you do, banish the attacking monster.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a51d7c",
+        "dlRelease": "2020-04-17"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a51dc3",
+      "name": "Divergence",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Continuous",
+      "atk": null,
+      "def": null,
+      "desc": "Once per chain, when an opponent's monster declares an attack that targets your Machine-Type monster: You can target 1 other Machine-Type monster you control; change the attack target to that target.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a51dc3",
+        "dlRelease": "2020-07-21"
+      }
+    },
+    {
+      "id": "dlx-644efda15f5a0804d9a371c6",
+      "name": "Dogking",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Equip",
+      "atk": null,
+      "def": null,
+      "desc": "The equipped monster gains 500 ATK for each Beast-Type monster you control. If this card is sent to the Graveyard: You can add 1 \"Tribulldog\" from your Deck to your hand.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "644efda15f5a0804d9a371c6",
+        "dlRelease": "2023-05-01"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a51e31",
+      "name": "Double Ripple",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "Send 2 face-up monsters you control to the Graveyard (1 Tuner and 1 non-Tuner), whose total Levels equal 7, then Special Summon both 1 'Power Tool Dragon' and 1 'Ancient Fairy Dragon' in Defense Position from your Extra Deck.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a51e31",
+        "dlRelease": "2020-02-17"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a51e39",
+      "name": "Double Type Rescue",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "If you control 2 or more face-up monsters with different Types, and your opponent controls more monsters than you do: Target 1 monster in your Graveyard; Special Summon it.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a51e39",
+        "dlRelease": "2021-03-01"
+      }
+    },
+    {
+      "id": "dlx-641c19f1c8fc8d6243549e3d",
+      "name": "Doubulldog",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "If you control a Beast-Type monster: Special Summon 1 \"Tribulldog\" from your Deck or Graveyard.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "641c19f1c8fc8d6243549e3d",
+        "dlRelease": "2023-04-01"
+      }
+    },
+    {
+      "id": "dlx-6475b5ee63b9a42713ed564f",
+      "name": "Empress's Staff",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "When an opponent's monster declares an attack: You can target the attacking monster: negate the attack, and if you do, inflict 250 damage to your opponent. If you control no monsters, you  can activate this card from your hand.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "6475b5ee63b9a42713ed564f",
+        "dlRelease": "2023-06-20"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a52102",
+      "name": "Ferocious Flora",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "FIRE",
+      "level": 3,
+      "race": "Plant",
+      "atk": 1000,
+      "def": 500,
+      "desc": "Once per turn, during damage calculation, if a Plant-Type monster you control battles an opponent's monster (Quick Effect): You can make that opponent's monster lose 800 ATK until the end of this turn.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a52102",
+        "dlRelease": "2021-03-22"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a52145",
+      "name": "Fire Lily",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "FIRE",
+      "level": 3,
+      "race": "Plant",
+      "atk": 800,
+      "def": 800,
+      "desc": "When an attack is declared involving this card: Inflict 400 damage to your opponent.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a52145",
+        "dlRelease": "2021-02-28"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aaa0e24f2d54a5217e",
+      "name": "Flame Wall",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Continuous",
+      "atk": null,
+      "def": null,
+      "desc": "While a Pyro-Type monster is in your Graveyard, you take no effect damage from your opponent's card effects.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aaa0e24f2d54a5217e",
+        "dlRelease": "2020-10-22"
+      }
+    },
+    {
+      "id": "dlx-66014ea7865ae78dec4936c8",
+      "name": "Fleur de Vertiges",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "When a monster(s) is Special Summoned to your opponent's field and a face-up Field Spell is on the field: Target 1 of them; banish it.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "66014ea7865ae78dec4936c8",
+        "dlRelease": "2024-03-25"
+      }
+    },
+    {
+      "id": "dlx-635467f4e7797da1e39df1ba",
+      "name": "Floral Shield",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "When an opponent's monster declares an attack: Target the attacking monster; negate the attack, and if you do, draw 1 card.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "635467f4e7797da1e39df1ba",
+        "dlRelease": "2024-03-25"
+      }
+    },
+    {
+      "id": "dlx-66013b057f11ee44a2463144",
+      "name": "For Our Dreams",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "Tribute 1 Warrior-Type monster you control, then target 1 Warrior-Type monster you control; it cannot be destroyed by battle while face-up on the field.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "66013b057f11ee44a2463144",
+        "dlRelease": "2024-03-25"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a523fd",
+      "name": "Gjallarhorn",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Continuous",
+      "atk": null,
+      "def": null,
+      "desc": "Must be activated in the Graveyard. If this card is in your Graveyard: You can target 1 'Aesir' monster you control; that face-up monster is unaffected by the effects of other Spells/Traps this turn, also, after that, place this card face-up in your Spell & Trap Zone. During your 3rd End Phase after activation, inflict damage to your opponent equal to the total ATK of all monsters you control, and if you do, banish this card and all monsters you control.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a523fd",
+        "dlRelease": "2020-01-31"
+      }
+    },
+    {
+      "id": "dlx-60c427544893632670281d3b",
+      "name": "Gold Coins for Cats",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "If your Beast-Type monster battles an opponent's monster, during damage calculation: That monster you control gains ATK equal to half the ATK of the opponent's monster it is battling, until the end of this turn.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c427544893632670281d3b",
+        "dlRelease": "2021-05-08"
+      }
+    },
+    {
+      "id": "dlx-619f24aed0c97fc0e7b4f58a",
+      "name": "Granel Attack",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "EARTH",
+      "level": 1,
+      "race": "Machine",
+      "atk": 1300,
+      "def": 0,
+      "desc": "If there is no face-up \"Meklord Emperor\" monster on the field, destroy this card. If a \"Meklord Emperor\" monster you control attacks a Defense Position monster, it can make a second attack in a row.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "619f24aed0c97fc0e7b4f58a",
+        "dlRelease": "2021-12-07"
+      }
+    },
+    {
+      "id": "dlx-61af1ac9949fcd79fae58d03",
+      "name": "Granel Carrier",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "EARTH",
+      "level": 1,
+      "race": "Machine",
+      "atk": 700,
+      "def": 700,
+      "desc": "If there is no face-up \"Meklord Emperor\" monster on the field, destroy this card. Each turn, the first monster you control would be destroyed by battle, is not destroyed.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "61af1ac9949fcd79fae58d03",
+        "dlRelease": "2021-12-09"
+      }
+    },
+    {
+      "id": "dlx-625d20e4489c99d331014c0c",
+      "name": "Granel Top",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "EARTH",
+      "level": null,
+      "race": "Machine",
+      "atk": 500,
+      "def": 0,
+      "desc": "If there is no face-up \"Meklord Emperor\" monster on the field, destroy this card. Once per turn: You can target 1 face-up monster your opponent controls; negate the effects of that opponent's monster until the end of this turn.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "625d20e4489c99d331014c0c",
+        "dlRelease": "2022-04-18"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a52582",
+      "name": "Happy Marriage",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Equip",
+      "atk": null,
+      "def": null,
+      "desc": "The equipped monster gains ATK equal to the combined original ATK of all monsters you control that are owned by your opponent.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a52582",
+        "dlRelease": "2016-11-17"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a5261f",
+      "name": "Hidden Passage",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Continuous",
+      "atk": null,
+      "def": null,
+      "desc": "All Level 2 or lower Spellcaster-Type monsters you control with ATK lower than the face-up monster your opponent controls with the lowest ATK can attack your opponent directly.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a5261f",
+        "dlRelease": "2020-04-30"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a52640",
+      "name": "High and Low",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "When your face-up monster is targeted for an attack: Apply the following effect up to 3 times while you control that face-up attack target.\n● Send the top card of your Deck to the Graveyard, and if it is a monster, the attack target gains ATK equal to the ATK of the monster you sent to the Graveyard, but if the attack target's ATK is higher than the attacking monster's ATK, destroy the attack target.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a52640",
+        "dlRelease": "2020-01-16"
+      }
+    },
+    {
+      "id": "dlx-60c427544893632670281d41",
+      "name": "Hook the Hidden Knight",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "DARK",
+      "level": 4,
+      "race": "Fiend",
+      "atk": 1600,
+      "def": 0,
+      "desc": "If this Attack Position card if targeted for an attack: Target the attacking monster; change this card to Defense Position, and if you do, change the attacking monster to Defense Position. If this card is changed from Attack Position to Defense Position: Inflict 400 damage to your opponent.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c427544893632670281d41",
+        "dlRelease": "2021-07-09"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a526ce",
+      "name": "Imitation",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "Target 1 Token in the Monster Zone; destroy it, and if you do, Special Summon 1 \"Mask Token\" (Spellcaster-Type/DARK/Level 1/ATK ?/DEF ?) with the same ATK and DEF to your opponent's field. Then, inflict damage to your opponent equal to half its ATK.",
+      "dlLimit": "Forbidden",
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a526ce",
+        "dlRelease": "2020-07-28"
+      }
+    },
+    {
+      "id": "dlx-621736ee997150f4199a1c98",
+      "name": "Indestructible Airship Hindenkraft",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "WIND",
+      "level": 10,
+      "race": "Machine",
+      "atk": 2900,
+      "def": 2000,
+      "desc": "You can Special Summon this card (from your hand) by Tributing 2 Tokens. When a Level 10 or higher monster(s) is Normal or Special Summoned (except during the Damage Step): You can change all Level 9 or lower monsters on the field to Defense Position. When a monster other than this card is changed from face-up Attack Position to face-up Defense Position; its ATK becomes 0.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "621736ee997150f4199a1c98",
+        "dlRelease": "2022-02-24"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a5273e",
+      "name": "Infinity Force",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "When you take battle or effect damage while you control a \"Meklord Emperor\" monster: Destroy all monsters your opponent controls.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a5273e",
+        "dlRelease": "2021-05-22"
+      }
+    },
+    {
+      "id": "dlx-61027ceed53783001f526f50",
+      "name": "Inviting Cat",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "Add 1 \"Cat Girl\" monster or \"Stray Cat\" monster from your Deck to your hand.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "61027ceed53783001f526f50",
+        "dlRelease": "2021-08-01"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a527ba",
+      "name": "Jester Queen",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "DARK",
+      "level": 2,
+      "race": "Spellcaster",
+      "atk": 800,
+      "def": 800,
+      "desc": "If this card is Normal or Special Summoned: Destroy all cards in your Spell & Trap Zone. If you control no other monsters, this card can attack a number of times each Battle Phase, up to the number of cards in your Spell & Trap Zone",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a527ba",
+        "dlRelease": "2019-12-11"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a527bb",
+      "name": "Jester's Panic",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "Target 1 Set card in your opponent's Spell & Trap Zone; look at that target, then you can reveal 1 card from your hand of the same type (Spell or Trap), destroy that target, and if you do, all level 2 or lower Spellcaster-Type monsters you currently control can attack your opponent directly this turn.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a527bb",
+        "dlRelease": "2016-11-17"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a52877",
+      "name": "Kiteroid",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "WIND",
+      "level": 1,
+      "race": "Machine",
+      "atk": 200,
+      "def": 400,
+      "desc": "During damage calculation, if your opponent's monster attacks directly (Quick Effect): You can discard this card; you take no battle damage from that battle. During damage calculation, if your opponent's monster attacks directly (Quick Effect): You can banish this card from your Graveyard; you take no battle damage from that battle.",
+      "dlLimit": "Limited 2",
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a52877",
+        "dlRelease": "2019-11-16"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a528ee",
+      "name": "Labyrinth of Kline",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "When an opponent's monster declares an attack: Target the attacking monster; negate the attack, and if you do, switch the original ATK and DEF of that monster until the end of the next turn.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a528ee",
+        "dlRelease": "2021-03-18"
+      }
+    },
+    {
+      "id": "dlx-63804fb4d07833eff0308dfb",
+      "name": "Load of Darkness",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "DARK",
+      "level": 10,
+      "race": "Fiend",
+      "atk": 3000,
+      "def": 1000,
+      "desc": "Cannot attack directly. Cannot be destroyed by battle. If this card destroys a monster by battle: Inflict 350 damage to your opponent.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "63804fb4d07833eff0308dfb",
+        "dlRelease": "2022-12-23"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a52a30",
+      "name": "Mach Synchron",
+      "cardType": "Monster",
+      "type": "Tuner Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "WIND",
+      "level": 1,
+      "race": "Machine",
+      "atk": 0,
+      "def": 0,
+      "desc": "Once per turn, during the End Phase, if this card is in the Graveyard because it was sent there this turn as Synchro Material: You can target 1 other monster in your Graveyard, that was used as material for that Synchro Summon; add it to your hand.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a52a30",
+        "dlRelease": "2016-11-17"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a52b73",
+      "name": "Masked Knight LV3",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "EARTH",
+      "level": 3,
+      "race": "Warrior",
+      "atk": 1500,
+      "def": 800,
+      "desc": "During your Standby Phase: You can send this face-up card to the Graveyard; Special Summon 1 \"Masked Knight LV5\" from your hand or Deck. Once per turn: You can inflict 200 damage to your opponent. This card cannot attack the turn you activate this effect.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a52b73",
+        "dlRelease": "2020-12-30"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a52b74",
+      "name": "Masked Knight LV5",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "EARTH",
+      "level": 5,
+      "race": "Warrior",
+      "atk": 2300,
+      "def": 1300,
+      "desc": "During your Standby Phase: You can send this face-up card to the Graveyard: Special Summon 1 \"Masked Knight LV7\" from your hand or Deck. You cannot activate this effect the turn this card is Summoned or flipped face-up. Once per turn: You can inflict 500 damage to your opponent. This card cannot attack the turn you activate this effect.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a52b74",
+        "dlRelease": "2021-01-02"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a52b75",
+      "name": "Masked Knight LV7",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "EARTH",
+      "level": 7,
+      "race": "Warrior",
+      "atk": 2900,
+      "def": 1800,
+      "desc": "Cannot be Normal Summoned/Set. Must be Special Summoned by \"Masked Knight LV5\". Once per turn: You can inflict 750 damage to your opponent.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a52b75",
+        "dlRelease": "2021-01-03"
+      }
+    },
+    {
+      "id": "dlx-60dd634adf0ac80015169ac4",
+      "name": "Monster Cat",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "DARK",
+      "level": 1,
+      "race": "Beast",
+      "atk": 0,
+      "def": 0,
+      "desc": "If this card is Special Summoned by the effect of \"Stray Cat\" destroy as many Level 4 or lower monsters your opponent controls as possible, and if you do, inflict 400 damage to your opponent for each monster destroyed. Once per turn: You can target 1 \"Stray Cat\" or \"Stray Cat Girl\" in your Graveyard; add it to your hand.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60dd634adf0ac80015169ac4",
+        "dlRelease": "2021-07-01"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a52fe5",
+      "name": "Pain to Power",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Equip",
+      "atk": null,
+      "def": null,
+      "desc": "If a monster you control other than the equipped monster attacks and you take battle damage: The equipped monster gainst ATK equal to the damage you took until the end of this turn.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a52fe5",
+        "dlRelease": "2020-02-29"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a53025",
+      "name": "Passion of Baimasse",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Counter",
+      "atk": null,
+      "def": null,
+      "desc": "When your opponent activates a monster effect, while you control an \"Earthbound Immortal\" monster: Negate the activation and destroy it.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a53025",
+        "dlRelease": "2020-03-16"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a5312e",
+      "name": "Playmaker",
+      "cardType": "Monster",
+      "type": "XYZ Monster",
+      "frameType": "xyz",
+      "extraDeck": true,
+      "attribute": "EARTH",
+      "level": 5,
+      "race": "Warrior",
+      "atk": 2600,
+      "def": 2500,
+      "desc": "3 Level 5 monsters\nIf this card is Special Summoned: Change all face-down Defense Position monsters on the field to face-up Attack Position. (Flip monsters' effects are not activated at this time.) At the end of the Damage Step, if this card attacked a monster: You can detach 1 material from this card, then target 1 monster your opponent controls with the highest ATK (your choice, if tied); this card can attack again in a row, on that monster.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a5312e",
+        "dlRelease": "2020-10-31"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a5315c",
+      "name": "Power Converter",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Equip",
+      "atk": null,
+      "def": null,
+      "desc": "Equip only to a monster you control. Once per turn, during your Main Phase 1: You can gain LP equal to half the ATK of the equipped monster, and if you do, its ATK becomes 0 until the end of this turn (even if this card leaves the field).",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a5315c",
+        "dlRelease": "2020-07-31"
+      }
+    },
+    {
+      "id": "dlx-61c57c5ba39489a9d062ce45",
+      "name": "Power Zone",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Field",
+      "atk": null,
+      "def": null,
+      "desc": "If a monster(s) is destroyed by battle: The controller of the destroyed monster(s) takes damage equal to half its original ATK.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "61c57c5ba39489a9d062ce45",
+        "dlRelease": "2022-01-20"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a531ab",
+      "name": "Pride Shout",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Continuous",
+      "atk": null,
+      "def": null,
+      "desc": "At the end of the Damage Step, if your monster with 0 ATK attacked directly while this card was already face-up in your Spell & Trap Zone: Inflict damage to your opponent equal to the DEF of that monster you control.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a531ab",
+        "dlRelease": "2020-05-31"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a5346a",
+      "name": "Sacred Defense Barrier",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Field",
+      "atk": null,
+      "def": null,
+      "desc": "Each time a Rock-Type monster is Normal or Flip Summoned: Change it to Defense Position, and if you do, place 1 Protection Counter on it. If a monster with a Protection Counter would be destroyed by battle or card effect while this card is on the field, remove 1 Protection Counter from it instead.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a5346a",
+        "dlRelease": "2020-08-20"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a534cf",
+      "name": "Satellite Laser Balsam",
+      "cardType": "Monster",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "extraDeck": true,
+      "attribute": "LIGHT",
+      "level": 8,
+      "race": "Machine",
+      "atk": 0,
+      "def": 2000,
+      "desc": "\"Satellite Cannon\" + \"Satellite Cannon\" + \"Satellite Cannon\"\nMust be Fusion Summoned. Once per turn, during your End Phase: This cards gains 3000 ATK. If this card attacks, this increased ATK returns to 0, after damage calculation. If this cards attacks a Defense Position monster, inflict piercing battle damage.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a534cf",
+        "dlRelease": "2021-01-31"
+      }
+    },
+    {
+      "id": "dlx-64c0dac4ba20ae8d7d4b9dce",
+      "name": "Scab Scarknight",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "DARK",
+      "level": 4,
+      "race": "Warrior",
+      "atk": 0,
+      "def": 0,
+      "desc": "You can only control 1 \"Scab Scarknight\". Cannot be destroyed by battle. If this card is in face-up Defense Position, destroy this card. Monsters your opponent controls must attack this card, if able. At the end of the Battle Phase, if this card battled: You can target 1 monster your opponent controls that battled this card this Battle Phase; take control of it.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "64c0dac4ba20ae8d7d4b9dce",
+        "dlRelease": "2023-08-04"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a53590",
+      "name": "Shield Recovery",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "Target 1 \"B.E.S.\" monster on the field: put 3 counters on that target.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a53590",
+        "dlRelease": "2021-03-29"
+      }
+    },
+    {
+      "id": "dlx-61af15316da779cdbac9a481",
+      "name": "Skiel Guard",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "WIND",
+      "level": 1,
+      "race": "Machine",
+      "atk": 200,
+      "def": 300,
+      "desc": "If there is no face-up \"Meklord Emperor\" monster on the field, destroy this card. Once per turn, when a monster you control is targeted for an attack: You can negate the attack.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "61af15316da779cdbac9a481",
+        "dlRelease": "2021-12-09"
+      }
+    },
+    {
+      "id": "dlx-61cbefe76ff7e46244d7e6c6",
+      "name": "Southern Stars",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "Target 1 face-up monster on the field; its Level becomes 10.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "61cbefe76ff7e46244d7e6c6",
+        "dlRelease": "2022-02-26"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a536dc",
+      "name": "Spark Breaker",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Continuous",
+      "atk": null,
+      "def": null,
+      "desc": "Once per turn: You can target 1 monster you control; destroy that target.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a536dc",
+        "dlRelease": "2021-05-19"
+      }
+    },
+    {
+      "id": "dlx-60dd6309df0ac80015169a39",
+      "name": "Stray Cat",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "EARTH",
+      "level": 1,
+      "race": "Beast",
+      "atk": 100,
+      "def": 300,
+      "desc": "When this card is Normal Summoned: You can Special Summon 1 \"Stray Cat\" from your hand. While this card is in face-up Attack position, your opponent's monsters cannot target monsters for attacks, except this one. When this card is destroyed by battle and sent to the Graveyard: You can Special Summon 1 \"Monster Cat\" from your hand, Deck or Graveyard.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60dd6309df0ac80015169a39",
+        "dlRelease": "2021-07-01"
+      }
+    },
+    {
+      "id": "dlx-60c427544893632670281d3d",
+      "name": "Stray Cat Girl",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "EARTH",
+      "level": 4,
+      "race": "Beast",
+      "atk": 600,
+      "def": 1500,
+      "desc": "When an opponent's monster declares an attack: You can Tribute 1 Level 1 Beast-Type monster; Special Summon this card from your hand. This Attack Position card cannot be destroyed by battle.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c427544893632670281d3d",
+        "dlRelease": "2021-04-30"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a5391b",
+      "name": "Synchro Back",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "Target 1 Synchro Monster you control; return that target to the Extra Deck, also during the Standby Phase of your next turn, Special Summon from your Extra Deck, 1 Synchro Monster with the same name as that monster returned to the Extra Deck.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a5391b",
+        "dlRelease": "2020-03-06"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a5392b",
+      "name": "Synchro Monument",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Field",
+      "atk": null,
+      "def": null,
+      "desc": "Synchro Summons cannot be negated. Neither player can activate Spell/Trap Cards when a monster is Synchro Summoned.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a5392b",
+        "dlRelease": "2016-11-17"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a5392e",
+      "name": "Synchro Spirits",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": null,
+      "atk": null,
+      "def": null,
+      "desc": "Target 1 Synchro Monster in your Graveyard; banish it, then, if all of the monsters that were used for the Synchro Summon of that monster are in your Graveyard, you can Special Summon all of them.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a5392e",
+        "dlRelease": "2016-11-17"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a53a1a",
+      "name": "The Material Lord",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Continuous",
+      "atk": null,
+      "def": null,
+      "desc": "Activate this card only if you have a Level 4 or lower 'Arcana Force' monster in your Graveyard. You can send 1 Level 5 or 6 'Arcana Force' monster from your hand to the Graveyard; add 1 'The Spiritual Lord' from your Deck to your hand.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a53a1a",
+        "dlRelease": "2019-07-09"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a53a4d",
+      "name": "The Sky Lord",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Continuous",
+      "atk": null,
+      "def": null,
+      "desc": "Activate this card only if you have a Level 7 or higher 'Arcana Force' monster in your Graveyard. You can send this face-up card, 1 'The Material Lord', and 1 'The Spiritual Lord' from your field to the Graveyard; Special Summon 1 'Arcana Force EX - The Light Ruler' from your hand, Deck, or Graveyard, ignoring its Summoning conditions.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a53a4d",
+        "dlRelease": "2019-07-09"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a53a50",
+      "name": "The Spiritual Lord",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Continuous",
+      "atk": null,
+      "def": null,
+      "desc": "Activate this card only if you have a Level 5 or 6 'Arcana Force' monster in your Graveyard. You can send 1 Level 7 or higher 'Arcana Force' monster from your hand to the Graveyard: add 1 'The Sky Lord' from your Deck to your hand.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a53a50",
+        "dlRelease": "2019-07-09"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a53a61",
+      "name": "The Unchosen One",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "If your opponent controls 2 or more monsters: Your opponent chooses 1 monster they control, you destroy 1 other monster they control, then, Special Summon the destroyed monster from the Graveyard in Attack Position. You cannot conduct your Battle Phase the turn you activate this card.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a53a61",
+        "dlRelease": "2016-11-17"
+      }
+    },
+    {
+      "id": "dlx-6475b58a9de1c56f2f23e538",
+      "name": "Time Angel",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "LIGHT",
+      "level": 1,
+      "race": "Fairy",
+      "atk": 0,
+      "def": 0,
+      "desc": "If this Attack Position card is destroyed by battle and sent to the Graveyard: Return all monsters on the field to the hand.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "6475b58a9de1c56f2f23e538",
+        "dlRelease": "2023-06-20"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a53aff",
+      "name": "Tomato in Tomato",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "EARTH",
+      "level": 3,
+      "race": "Plant",
+      "atk": 1000,
+      "def": 1400,
+      "desc": "Cannot be used as an Xyz Material for an Xyz Summon, except for the Xyz Summon of a Plant-Type monster. When this card is Normal Summoned: You can Special Summon 1 \"Tomato in Tomato\" from your hand or Deck.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a53aff",
+        "dlRelease": "2021-03-09"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a53afe",
+      "name": "Tomato King",
+      "cardType": "Monster",
+      "type": "XYZ Monster",
+      "frameType": "xyz",
+      "extraDeck": true,
+      "attribute": "EARTH",
+      "level": 3,
+      "race": "Plant",
+      "atk": 1600,
+      "def": 800,
+      "desc": "2 Level 3 Plant-Type monsters\nOnce per turn: You can detach 1 Xyz Material from this card; this card's ATK becomes double its original ATK until the end of the opponent's turn.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a53afe",
+        "dlRelease": "2021-03-09"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a53b37",
+      "name": "Toy Emperor",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "EARTH",
+      "level": 6,
+      "race": "Machine",
+      "atk": 2300,
+      "def": 800,
+      "desc": "When this card destroys an opponent's monster by battle: You can add 1 Trap from your Deck to your hand.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a53b37",
+        "dlRelease": "2020-02-15"
+      }
+    },
+    {
+      "id": "dlx-61c581623389b242de48ddc0",
+      "name": "Tribulldog",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "EARTH",
+      "level": 4,
+      "race": "Beast",
+      "atk": 1200,
+      "def": 1100,
+      "desc": "Once per turn, during your Main Phase: You can Special Summon 1 \"Tribulldog\" from your hand.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "61c581623389b242de48ddc0",
+        "dlRelease": "2022-01-01"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a53c00",
+      "name": "Twin Vortex",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "Target 1 Machine-Type monster you control and 1 monster your opponent controls: destroy both targets.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a53c00",
+        "dlRelease": "2021-05-22"
+      }
+    },
+    {
+      "id": "dlx-621743578c893689c453c359",
+      "name": "Unsinkable Titanica",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "WATER",
+      "level": 10,
+      "race": "Machine",
+      "atk": 2800,
+      "def": 3000,
+      "desc": "You can Special Summon this card (from your hand) by Tributing 2 Tokens. Once per turn: you can target 1 monster with 0 DEF on the field; destroy it, and if you do, inflict damage to your opponent equal to quarter the destroyed monster's ATK on the field.",
+      "dlLimit": "Forbidden",
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "621743578c893689c453c359",
+        "dlRelease": "2022-02-26"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a53d53",
+      "name": "Volcanic Wall",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Continuous",
+      "atk": null,
+      "def": null,
+      "desc": "Once per turn: You can send 3 cards from the top of your Deck to the Graveyard, and if you do, inflict 250 damage to your opponent for each Pyro-Type monster sent to the Graveyard by this effect. You cannot declare an attack during the turn you activate this effect.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a53d53",
+        "dlRelease": "2020-12-06"
+      }
+    },
+    {
+      "id": "dlx-60c2b3ada0e24f2d54a53e47",
+      "name": "Wisel Attack",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "DARK",
+      "level": 1,
+      "race": "Machine",
+      "atk": 1200,
+      "def": 0,
+      "desc": "If there is no face-up \"Meklord Emperor\" on the field, destroy this card.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3ada0e24f2d54a53e47",
+        "dlRelease": "2021-05-22"
+      }
+    },
+    {
+      "id": "dlx-60c2b3ada0e24f2d54a53e48",
+      "name": "Wisel Attack 3",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "DARK",
+      "level": 3,
+      "race": "Machine",
+      "atk": 1600,
+      "def": 0,
+      "desc": "You can Special Summon this card (from your hand) by Tributing 1 \"Wisel Attack\". If there is no face-up \"Meklord Emperor\" on the field, destroy this card. If your \"Meklord Emperor\" monster attacks a Defense Position monster, inflict piercing battle damage to your opponent.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3ada0e24f2d54a53e48",
+        "dlRelease": "2021-05-19"
+      }
+    },
+    {
+      "id": "dlx-60c2b3ada0e24f2d54a53e49",
+      "name": "Wisel Carrier",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "DARK",
+      "level": 1,
+      "race": "Machine",
+      "atk": 800,
+      "def": 600,
+      "desc": "If there is no face-up \"Meklord Emperor\" on the field, destroy this card. Cannot be destroyed by an opponent's card effects.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3ada0e24f2d54a53e49",
+        "dlRelease": "2021-05-22"
+      }
+    },
+    {
+      "id": "dlx-60c2b3ada0e24f2d54a53e4a",
+      "name": "Wisel Guard",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "DARK",
+      "level": 1,
+      "race": "Machine",
+      "atk": 0,
+      "def": 1200,
+      "desc": "If there is no face-up \"Meklord Emperor\" monster on the field, destroy this card. When an opponent's monster declares an attack that targets another monster you control: You can change the attack target to this card.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3ada0e24f2d54a53e4a",
+        "dlRelease": "2021-05-22"
+      }
+    },
+    {
+      "id": "dlx-60c2b3ada0e24f2d54a53e4b",
+      "name": "Wisel Guard 3",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "DARK",
+      "level": 3,
+      "race": "Machine",
+      "atk": 0,
+      "def": 2000,
+      "desc": "You can Special Summon this card (from your hand) by Tributing 1 \"Wisel Guard\", if there is no face-up \"Meklord Emperor\" on the field, destroy this card. When an opponent's monster declares an attack that targets another monster you control. You can change the attack target to this card. The first time this card would be destroyed by battle each turn, it is not destroyed.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3ada0e24f2d54a53e4b",
+        "dlRelease": "2021-12-09"
+      }
+    },
+    {
+      "id": "dlx-60c2b3ada0e24f2d54a53e4c",
+      "name": "Wisel Top",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "DARK",
+      "level": 1,
+      "race": "Machine",
+      "atk": 500,
+      "def": 0,
+      "desc": "If there is no face-up \"Meklord Emperor\" on the field, destroy this card.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3ada0e24f2d54a53e4c",
+        "dlRelease": "2021-05-22"
+      }
+    },
+    {
+      "id": "dlx-60c2b3ada0e24f2d54a53e4d",
+      "name": "Wisel Top 3",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "DARK",
+      "level": 3,
+      "race": "Machine",
+      "atk": 600,
+      "def": 0,
+      "desc": "You can Special Summon this card (from your hand) by Tributing 1 \"Wisel Top\". If there is no face-up \"Meklord Emperor\" on the field, destroy this card. Once per turn, when your opponent activates a Spell Card (Quick Effect): You can negate the activation, and if you do, destroy it",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3ada0e24f2d54a53e4d",
+        "dlRelease": "2022-02-14"
+      }
+    },
+    {
+      "id": "dlx-60c2b3ada0e24f2d54a53f80",
+      "name": "Zero Sprite",
+      "cardType": "Trap",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "Target 1 face-up monster you control; equip this card to that target. The equipped monster's original ATK becomes 0, but it can attack twice during each Battle Phase.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3ada0e24f2d54a53f80",
+        "dlRelease": "2020-05-31"
+      }
+    }
+  ]
+}

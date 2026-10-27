@@ -13,6 +13,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const express = require('express');
 const cardsRepo = require('./models/cards');
+const dlExclusives = require('../../server/models/duel-links-exclusive-cards');
 
 const IMAGE_DIR = process.env.CARD_IMAGE_DIR
   ? path.resolve(process.cwd(), process.env.CARD_IMAGE_DIR)
@@ -97,6 +98,62 @@ function toApiCard(card, req) {
   };
 }
 
+// Duel Links exclusive cards (board D011) answer in the same shape as a
+// catalog card, with no art, sets or prices. Their id is a "dlx-" string, never
+// a number, so nothing can mistake it for a passcode or ask /card-image for it.
+function toExclusiveApiCard(card) {
+  const apiCard = {
+    id: card.id,
+    name: card.name,
+    type: card.type,
+    frameType: card.frameType,
+    desc: card.desc,
+    atk: card.atk,
+    def: card.def,
+    level: card.level,
+    race: card.race,
+    attribute: card.attribute,
+    archetype: null,
+    scale: null,
+    linkval: null,
+    linkmarkers: [],
+    card_images: [],
+    card_sets: [],
+    card_prices: [],
+    dl_exclusive: true
+  };
+  if (card.dlLimit) {
+    apiCard.banlist_info = { ban_duel_links: card.dlLimit };
+  }
+  return apiCard;
+}
+
+// Exclusives join a lookup only for game=duel-links, and only for a plain
+// name= or fname= search: never for id=, a filtered query, or a later page.
+// Without game=duel-links (TCG, Master Duel, Card Lookup) nothing changes.
+function findDuelLinksExclusives(query, catalogCards) {
+  const plainSearch = !query.archetype && !query.type && !query.attribute && !query.race
+    && query.level === undefined && query.offset === 0;
+  if (query.id !== undefined || !plainSearch) return [];
+
+  if (query.name) {
+    if (catalogCards.length > 0) return [];
+    const card = dlExclusives.findByName(query.name);
+    return card ? [card] : [];
+  }
+
+  if (query.fname) {
+    const room = query.num - catalogCards.length;
+    if (room <= 0) return [];
+    const taken = new Set(catalogCards.map((card) => String(card.name).toLowerCase()));
+    return dlExclusives.search(query.fname, query.num)
+      .filter((card) => !taken.has(card.name.toLowerCase()))
+      .slice(0, room);
+  }
+
+  return [];
+}
+
 function findLocalImageFile(baseName) {
   const extensions = ['.jpg', '.jpeg', '.png', '.webp'];
   for (const extension of extensions) {
@@ -147,13 +204,19 @@ router.get('/cardinfo.php', (req, res) => {
     }
 
     const cards = cardsRepo.findByQuery(query);
+    const exclusives = req.query.game === 'duel-links' ? findDuelLinksExclusives(query, cards) : [];
 
-    if (cards.length === 0) {
+    if (cards.length === 0 && exclusives.length === 0) {
       res.status(404).json({ error: 'No card matching your query was found in the local database.' });
       return;
     }
 
-    res.json({ data: cards.map((card) => toApiCard(card, req)) });
+    res.json({
+      data: [
+        ...cards.map((card) => toApiCard(card, req)),
+        ...exclusives.map(toExclusiveApiCard)
+      ]
+    });
   } catch (error) {
     res.status(400).json({ error: error.message || 'Invalid query' });
   }
