@@ -884,3 +884,171 @@ test('card database: health endpoint reports card count', async () => {
   assert.equal(response.body.ok, true);
   assert.equal(response.body.cards, 1);
 });
+
+// ---------------------------------------------------------------------------
+// Duel Links exclusive cards (board D011). Spec:
+// ops/staff/cards/2026-10-27-duel-links-exclusive-cards-spec.md (gitignored).
+//
+// These hit the real checked in list, server/reference-data/duel-links-exclusive-cards.json,
+// through the real router. The in-memory SQLite catalog only holds Blue-Eyes
+// White Dragon (seeded above), so every Kiteroid hit below can only come from
+// the exclusives list. tests/fixtures/duel-links-exclusive-cards.fixture.json
+// is a six card copy the E2E mocks serve; the integrity test keeps it honest.
+// ---------------------------------------------------------------------------
+const DL_EXCLUSIVES_PATH = require('node:path').join(__dirname, '..', 'server', 'reference-data', 'duel-links-exclusive-cards.json');
+const DL_EXCLUSIVES_FIXTURE = require('./fixtures/duel-links-exclusive-cards.fixture.json');
+const KITEROID_ID = 'dlx-60c2b3aba0e24f2d54a52877';
+const DLX_ID_PATTERN = /^dlx-[0-9a-f]{24}$/;
+
+function loadDuelLinksExclusives() {
+  // Read fresh rather than require(): a missing file fails with a clear
+  // ENOENT naming the path dev has to create.
+  return JSON.parse(require('node:fs').readFileSync(DL_EXCLUSIVES_PATH, 'utf8'));
+}
+
+test('dl exclusives: name lookup with game=duel-links returns Kiteroid in the catalog card shape', async () => {
+  const response = await request(app).get('/api/v7/cardinfo.php?name=Kiteroid&game=duel-links');
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.data.length, 1);
+  const card = response.body.data[0];
+  assert.equal(card.name, 'Kiteroid');
+  assert.match(String(card.id), DLX_ID_PATTERN);
+  assert.equal(card.id, KITEROID_ID);
+  assert.equal(card.type, 'Effect Monster');
+  assert.equal(card.frameType, 'effect');
+  assert.equal(card.attribute, 'WIND');
+  assert.equal(card.level, 1);
+  assert.equal(card.atk, 200);
+  assert.equal(card.def, 400);
+  assert.ok(card.desc && card.desc.length > 0);
+  assert.deepEqual(card.card_images, []);
+  assert.deepEqual(card.card_sets, []);
+  assert.deepEqual(card.card_prices, []);
+  assert.equal(card.banlist_info.ban_duel_links, 'Limited 2');
+  assert.equal(card.dl_exclusive, true);
+
+  // Case insensitive, like every other name lookup.
+  const lower = await request(app).get('/api/v7/cardinfo.php?name=kiteroid&game=duel-links');
+  assert.equal(lower.status, 200);
+  assert.equal(lower.body.data[0].name, 'Kiteroid');
+
+  // An exclusive with no Duel Links limit omits banlist_info entirely.
+  const playmaker = await request(app).get('/api/v7/cardinfo.php?name=Playmaker&game=duel-links');
+  assert.equal(playmaker.status, 200);
+  assert.equal(playmaker.body.data[0].frameType, 'xyz');
+  assert.equal(playmaker.body.data[0].banlist_info, undefined);
+});
+
+test('dl exclusives: name lookup without game=duel-links never finds an exclusive', async () => {
+  for (const suffix of ['', '&game=ygo-tcg', '&game=master-duel', '&game=rush-duel']) {
+    const response = await request(app).get(`/api/v7/cardinfo.php?name=Kiteroid${suffix}`);
+    assert.equal(response.status, 404, `name=Kiteroid${suffix} should 404`);
+  }
+
+  // Control: the same name does resolve for Duel Links, so the 404s above are
+  // about the game, not a missing card.
+  const control = await request(app).get('/api/v7/cardinfo.php?name=Kiteroid&game=duel-links');
+  assert.equal(control.status, 200);
+});
+
+test('dl exclusives: fname search adds exclusives only for game=duel-links, after catalog hits', async () => {
+  const dl = await request(app).get('/api/v7/cardinfo.php?fname=kite&game=duel-links');
+  assert.equal(dl.status, 200);
+  assert.ok(dl.body.data.some((card) => card.name === 'Kiteroid'), 'Duel Links search should include Kiteroid');
+
+  const plain = await request(app).get('/api/v7/cardinfo.php?fname=kite');
+  assert.ok(!(plain.body.data || []).some((card) => card.name === 'Kiteroid'), 'search without game must not include Kiteroid');
+
+  const tcg = await request(app).get('/api/v7/cardinfo.php?fname=kite&game=ygo-tcg');
+  assert.ok(!(tcg.body.data || []).some((card) => card.name === 'Kiteroid'), 'TCG search must not include Kiteroid');
+
+  // Catalog cards still come back for a Duel Links search.
+  const catalog = await request(app).get('/api/v7/cardinfo.php?fname=Blue-Eyes&game=duel-links');
+  assert.equal(catalog.status, 200);
+  assert.equal(catalog.body.data[0].name, 'Blue-Eyes White Dragon');
+  assert.equal(catalog.body.data[0].dl_exclusive, undefined);
+});
+
+test('dl exclusives: id lookups never return an exclusive', async () => {
+  // Control: Kiteroid exists for Duel Links, so a 400 below is the id rule,
+  // not a card the server has never heard of.
+  const control = await request(app).get('/api/v7/cardinfo.php?name=Kiteroid&game=duel-links');
+  assert.equal(control.status, 200);
+  const id = control.body.data[0].id;
+
+  for (const suffix of ['', '&game=duel-links']) {
+    const response = await request(app).get(`/api/v7/cardinfo.php?id=${encodeURIComponent(id)}${suffix}`);
+    assert.equal(response.status, 400, `id=${id}${suffix} should be refused`);
+  }
+
+  // A numeric id with game=duel-links still answers from the catalog only.
+  const numeric = await request(app).get('/api/v7/cardinfo.php?id=89631139&game=duel-links');
+  assert.equal(numeric.status, 200);
+  assert.equal(numeric.body.data.length, 1);
+  assert.equal(numeric.body.data[0].name, 'Blue-Eyes White Dragon');
+});
+
+test('dl exclusives: card-image refuses a dlx id with a 400', async () => {
+  const control = await request(app).get('/api/v7/cardinfo.php?name=Kiteroid&game=duel-links');
+  assert.equal(control.status, 200);
+  const id = control.body.data[0].id;
+
+  for (const size of ['', '?size=small', '?size=cropped']) {
+    const response = await request(app).get(`/api/v7/card-image/${encodeURIComponent(id)}${size}`);
+    assert.equal(response.status, 400);
+    assert.ok(response.body.message);
+  }
+});
+
+test('dl exclusives: the checked in list is well formed and matches the test fixture', () => {
+  const file = loadDuelLinksExclusives();
+  assert.ok(Array.isArray(file.cards), 'cards must be an array');
+  assert.ok(file.meta && file.meta.dlLimitAsOf, 'meta.dlLimitAsOf is required');
+
+  const cards = file.cards;
+  assert.ok(cards.length >= 90 && cards.length <= 200, `expected 90 to 200 exclusives, got ${cards.length}`);
+
+  const ids = new Set();
+  const names = new Set();
+  const EXTRA_FRAMES = ['fusion', 'synchro', 'xyz', 'link'];
+  for (const card of cards) {
+    assert.match(String(card.id), DLX_ID_PATTERN, `bad id on ${card.name}`);
+    assert.ok(!ids.has(card.id), `duplicate id ${card.id}`);
+    ids.add(card.id);
+
+    const key = String(card.name).toLowerCase();
+    assert.ok(!names.has(key), `duplicate name ${card.name}`);
+    names.add(key);
+
+    assert.ok(['Monster', 'Spell', 'Trap'].includes(card.cardType), `bad cardType on ${card.name}`);
+    const isExtra = EXTRA_FRAMES.some((frame) => String(card.frameType).startsWith(frame));
+    assert.equal(card.extraDeck, isExtra, `extraDeck wrong on ${card.name} (${card.frameType})`);
+    assert.ok([null, 'Forbidden', 'Limited 1', 'Limited 2', 'Limited 3'].includes(card.dlLimit), `bad dlLimit on ${card.name}`);
+    assert.ok(!Object.keys(card).some((k) => /image/i.test(k)), `${card.name} must carry no image field`);
+  }
+
+  // Sorted by name, as the import script writes it.
+  const sorted = cards.map((c) => c.name).sort((a, b) => a.localeCompare(b));
+  assert.deepEqual(cards.map((c) => c.name), sorted);
+
+  // Renames and punctuation variants of catalog cards must never be added.
+  for (const name of [
+    'Synch Realm',
+    'Tribute to The Doomed',
+    'Twin Long Rods 1',
+    'Vaylantz Wave – Master Phase',
+    'Battlin’ Boxing Cross Counter'
+  ]) {
+    assert.ok(!names.has(name.toLowerCase()), `${name} is a catalog card and must not be listed`);
+  }
+
+  // The E2E fixture must agree with the real list on every field the app reads.
+  for (const fixtureCard of DL_EXCLUSIVES_FIXTURE.cards) {
+    const real = cards.find((c) => c.name === fixtureCard.name);
+    assert.ok(real, `fixture card ${fixtureCard.name} missing from the real list`);
+    for (const field of ['id', 'cardType', 'type', 'frameType', 'extraDeck', 'level', 'dlLimit']) {
+      assert.deepEqual(real[field], fixtureCard[field], `${fixtureCard.name}.${field} drifted from the fixture`);
+    }
+  }
+});

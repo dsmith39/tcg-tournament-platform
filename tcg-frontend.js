@@ -1246,8 +1246,41 @@ function getMaxAllowedCopiesByBanStatus(status) {
     return 3;
 }
 
-async function fetchCardDataByExactName(name) {
-    const response = await fetch(`${YGO_CARD_API_URL}?name=${encodeURIComponent(name)}`);
+// Duel Links exclusive cards (Tag Force, ZEXAL Duel Carnival and the like, board
+// D011) aren't in the catalog. The server adds them to a lookup only when it
+// carries game=duel-links, so every deck builder lookup passes the deck's game.
+function cardLookupGameParam(game) {
+    return game === 'duel-links' ? '&game=duel-links' : '';
+}
+
+// The card caches are keyed by game as well as name. Keyed by name alone, a
+// Duel Links only card found for a Duel Links deck would come back from the
+// cache after the player switched the deck to TCG.
+function cardLookupCacheKey(name, game) {
+    return `${game === 'duel-links' ? 'duel-links' : 'catalog'}:${String(name).toLowerCase()}`;
+}
+
+function getDeckGameLabel(game) {
+    return {
+        'ygo-tcg': 'TCG',
+        'master-duel': 'Master Duel',
+        'duel-links': 'Duel Links'
+    }[game] || game || 'this format';
+}
+
+// True when the catalog doesn't know `name` but Duel Links does: a Duel Links
+// exclusive. Used to refuse or flag it in a TCG or Master Duel deck.
+async function isDuelLinksExclusiveCard(name) {
+    try {
+        const card = await fetchDetailedCardByName(name, 'duel-links');
+        return card?.dl_exclusive === true;
+    } catch (error) {
+        return false;
+    }
+}
+
+async function fetchCardDataByExactName(name, game) {
+    const response = await fetch(`${YGO_CARD_API_URL}?name=${encodeURIComponent(name)}${cardLookupGameParam(game)}`);
     if (!response.ok) return null;
     const data = await response.json();
     return data?.data?.[0] || null;
@@ -1258,8 +1291,8 @@ async function fetchCardDataByExactName(name) {
 // catalog entry (e.g. after a `cards:import` refresh). Retrying with `fname=`
 // (substring match) and picking the case-insensitive exact match recovers
 // those instead of leaving the card's type unresolved.
-async function fetchCardDataByFuzzyName(name) {
-    const response = await fetch(`${YGO_CARD_API_URL}?fname=${encodeURIComponent(name)}`);
+async function fetchCardDataByFuzzyName(name, game) {
+    const response = await fetch(`${YGO_CARD_API_URL}?fname=${encodeURIComponent(name)}${cardLookupGameParam(game)}`);
     if (!response.ok) return null;
     const data = await response.json();
     const cards = Array.isArray(data?.data) ? data.data : [];
@@ -1267,18 +1300,20 @@ async function fetchCardDataByFuzzyName(name) {
     return cards.find((c) => (c?.name || '').toLowerCase() === lower) || null;
 }
 
-async function fetchDetailedCardByName(cardName) {
+// `game` defaults to the deck builder's Game Format; callers outside the
+// builder (a saved deck's detail view, legality checks) pass the deck's game.
+async function fetchDetailedCardByName(cardName, game = getSelectedDecklistGame()) {
     const normalized = String(cardName || '').trim();
     if (!normalized) {
         throw new Error('Card name is required');
     }
 
-    const cacheKey = normalized.toLowerCase();
+    const cacheKey = cardLookupCacheKey(normalized, game);
     if (detailedCardInfoCache.has(cacheKey)) {
         return detailedCardInfoCache.get(cacheKey);
     }
 
-    const card = (await fetchCardDataByExactName(normalized)) || (await fetchCardDataByFuzzyName(normalized));
+    const card = (await fetchCardDataByExactName(normalized, game)) || (await fetchCardDataByFuzzyName(normalized, game));
     if (!card) {
         throw new Error('Card not found');
     }
@@ -1344,20 +1379,38 @@ async function validateDecklistLegality(payload) {
         }
     });
 
-    if (payload.game === 'ygo-tcg') {
+    // TCG and Master Duel decks resolve every name. A name the catalog misses
+    // gets one more lookup as a Duel Links card: if it is one, that's an error
+    // (it can't be played here), not the usual "could not verify" warning.
+    // Cards are never removed on a game switch; the error blocks the save and
+    // the player decides.
+    if (payload.game === 'ygo-tcg' || payload.game === 'master-duel') {
         const entries = Array.from(counts.entries());
 
         for (let i = 0; i < entries.length; i += 1) {
             const [name, qty] = entries[i];
+            let card = null;
             try {
-                const card = await fetchDetailedCardByName(name);
+                card = await fetchDetailedCardByName(name, payload.game);
+            } catch (error) {
+                card = null;
+            }
+
+            if (!card) {
+                if (await isDuelLinksExclusiveCard(name)) {
+                    errors.push(`${name} is a Duel Links card and isn't legal in ${getDeckGameLabel(payload.game)}.`);
+                } else if (payload.game === 'ygo-tcg') {
+                    warnings.push(`Could not verify legality for ${name}.`);
+                }
+                continue;
+            }
+
+            if (payload.game === 'ygo-tcg') {
                 const tcgStatus = card?.banlist_info?.ban_tcg || null;
                 const maxAllowed = getMaxAllowedCopiesByBanStatus(tcgStatus);
                 if (qty > maxAllowed) {
                     errors.push(`${name} is ${tcgStatus || 'Unlimited'} in TCG. Allowed copies: ${maxAllowed}.`);
                 }
-            } catch (error) {
-                warnings.push(`Could not verify legality for ${name}.`);
             }
         }
     }
@@ -1486,7 +1539,7 @@ async function fetchCardSuggestions(query) {
 
     try {
         const response = await fetch(
-            `${YGO_CARD_API_URL}?fname=${encodeURIComponent(normalized)}`,
+            `${YGO_CARD_API_URL}?fname=${encodeURIComponent(normalized)}${cardLookupGameParam(getSelectedDecklistGame())}`,
             { signal: cardSuggestionAbortController.signal }
         );
 
@@ -1560,18 +1613,18 @@ function queueCardSuggestions() {
     }, 180);
 }
 
-async function fetchCardByName(cardName) {
+async function fetchCardByName(cardName, game = getSelectedDecklistGame()) {
     const normalized = String(cardName || '').trim();
     if (!normalized) {
         throw new Error('Card name is required');
     }
 
-    const cacheKey = normalized.toLowerCase();
+    const cacheKey = cardLookupCacheKey(normalized, game);
     if (cardLookupCache.has(cacheKey)) {
         return cardLookupCache.get(cacheKey);
     }
 
-    const response = await fetch(`${YGO_CARD_API_URL}?name=${encodeURIComponent(normalized)}`);
+    const response = await fetch(`${YGO_CARD_API_URL}?name=${encodeURIComponent(normalized)}${cardLookupGameParam(game)}`);
     if (!response.ok) {
         throw new Error('Card not found');
     }
@@ -1621,8 +1674,9 @@ async function fetchCardByPasscode(passcode) {
     };
 
     cardLookupCache.set(cacheKey, cardInfo);
-    // Also warm the name cache for quicker follow-up lookups.
-    cardLookupCache.set(card.name.toLowerCase(), cardInfo);
+    // Also warm the name cache for quicker follow-up lookups. A passcode is
+    // always a catalog card, so it goes under the catalog key.
+    cardLookupCache.set(cardLookupCacheKey(card.name, 'catalog'), cardInfo);
     return cardInfo;
 }
 
@@ -1630,7 +1684,9 @@ function isNumericPasscodeToken(value) {
     return /^\d+$/.test(String(value || '').trim());
 }
 
-async function hydrateDeckSectionFromText(deckText) {
+// Names resolve for `game` (the builder's Game Format unless a caller passes a
+// saved deck's game), so a Duel Links import finds Duel Links only cards.
+async function hydrateDeckSectionFromText(deckText, game = getSelectedDecklistGame()) {
     const tokens = parseDeckTextToNames(deckText);
 
     const cards = await Promise.all(tokens.map(async (token) => {
@@ -1638,7 +1694,7 @@ async function hydrateDeckSectionFromText(deckText) {
             if (isNumericPasscodeToken(token)) {
                 return await fetchCardByPasscode(token);
             }
-            return await fetchCardByName(token);
+            return await fetchCardByName(token, game);
         } catch (error) {
             return { name: token, imageUrl: '' };
         }
@@ -1702,13 +1758,13 @@ function groupDeckTextForDisplay(deckText) {
 // deckBuilder/decklist text entries don't carry card type, so the Main Deck's
 // Monster/Spell/Trap split needs a lookup per unique name -- same
 // fetchDetailedCardByName cache the banlist validator and deck stats warm.
-async function groupMainDeckByType(deckText) {
+async function groupMainDeckByType(deckText, game) {
     const grouped = groupDeckTextForDisplay(deckText);
     const buckets = { monster: [], spell: [], trap: [], unresolved: [] };
 
     await Promise.all(grouped.map(async (card) => {
         try {
-            const detailed = await fetchDetailedCardByName(card.name);
+            const detailed = await fetchDetailedCardByName(card.name, game);
             // frameType is a clean single token ("spell", "trap", "normal", "synchro", ...) --
             // unlike the free-text "type" string, it needs no substring guessing.
             const frameType = String(detailed?.frameType || '').toLowerCase();
@@ -1725,10 +1781,10 @@ async function groupMainDeckByType(deckText) {
     return buckets;
 }
 
-async function renderDecklistMainDeckTextSection(deckText) {
+async function renderDecklistMainDeckTextSection(deckText, game) {
     if (!deckText) return '';
 
-    const buckets = await groupMainDeckByType(deckText);
+    const buckets = await groupMainDeckByType(deckText, game);
     const total = parseDeckTextToNames(deckText).length;
 
     return `
@@ -1847,9 +1903,9 @@ async function getDecklistImageSections(decklist) {
     }
 
     const sections = {
-        main: await hydrateDeckSectionFromText(decklist.mainDeck || ''),
-        extra: await hydrateDeckSectionFromText(decklist.extraDeck || ''),
-        side: await hydrateDeckSectionFromText(decklist.sideDeck || '')
+        main: await hydrateDeckSectionFromText(decklist.mainDeck || '', decklist.game),
+        extra: await hydrateDeckSectionFromText(decklist.extraDeck || '', decklist.game),
+        side: await hydrateDeckSectionFromText(decklist.sideDeck || '', decklist.game)
     };
 
     if (cacheKey) {
@@ -1895,7 +1951,7 @@ async function renderDecklistDetailContent() {
         '<div class="empty-state" style="padding: 1rem 0;">Loading decklist...</div>'
     );
 
-    const mainDeckSection = await renderDecklistMainDeckTextSection(decklist.mainDeck || '');
+    const mainDeckSection = await renderDecklistMainDeckTextSection(decklist.mainDeck || '', decklist.game);
 
     if (!currentDecklistDetail || getEntityId(currentDecklistDetail) !== decklistId || decklistDetailViewMode !== 'text') {
         return;
@@ -2331,11 +2387,24 @@ async function addCardToDeckBuilder() {
     if (addButton) addButton.disabled = true;
     setDeckCardFeedback('Searching card...', 'success');
 
+    const game = getSelectedDecklistGame();
+
     try {
-        const card = await fetchCardByName(enteredName);
+        let card;
+        try {
+            card = await fetchCardByName(enteredName, game);
+        } catch (lookupError) {
+            // Not in the catalog. If it's a Duel Links only card, say so instead
+            // of the generic "not found" (one extra request, only on a miss).
+            if (game !== 'duel-links' && await isDuelLinksExclusiveCard(enteredName)) {
+                setDeckCardFeedback(`${enteredName} is a Duel Links card. Switch Game Format to Duel Links to add it.`);
+                return;
+            }
+            throw lookupError;
+        }
 
         try {
-            const detailed = await fetchDetailedCardByName(card.name);
+            const detailed = await fetchDetailedCardByName(card.name, game);
             if (isExtraDeckMonsterType(detailed?.frameType)) {
                 section = 'extra';
             }
@@ -3700,9 +3769,9 @@ async function editDecklist(decklistId, options = {}) {
 
     setDeckCardFeedback('Loading saved cards...', 'success');
     const hydrated = {
-        main: await hydrateDeckSectionFromText(decklist.mainDeck || ''),
-        extra: await hydrateDeckSectionFromText(decklist.extraDeck || ''),
-        side: await hydrateDeckSectionFromText(decklist.sideDeck || '')
+        main: await hydrateDeckSectionFromText(decklist.mainDeck || '', decklist.game),
+        extra: await hydrateDeckSectionFromText(decklist.extraDeck || '', decklist.game),
+        side: await hydrateDeckSectionFromText(decklist.sideDeck || '', decklist.game)
     };
 
     // The player may have left or opened another deck while cards loaded.

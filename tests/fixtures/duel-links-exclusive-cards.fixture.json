@@ -1,0 +1,128 @@
+{
+  "meta": {
+    "fixture": "Test fixture, 6 of the 103 cards in the shape of server/reference-data/duel-links-exclusive-cards.json. Copied from the cards steward draft of 2026-10-27. Not the shipped file; the API suite checks these entries still match the real one.",
+    "dlLimitAsOf": "2026-10-27"
+  },
+  "cards": [
+    {
+      "id": "dlx-64c0db322888788c6103976c",
+      "name": "Archfiend Matador",
+      "cardType": "Monster",
+      "type": "Ritual Effect Monster",
+      "frameType": "ritual",
+      "extraDeck": false,
+      "attribute": "DARK",
+      "level": 6,
+      "race": "Warrior",
+      "atk": 0,
+      "def": 0,
+      "desc": "This card can only be Ritual Summoned with the Ritual Spell Card, \"Ritual of the Matador\". This card cannot attack. This card is not destroyed as a result of battle and any Battle Damage to the controller of this card becomes 0. A monster that battles with this card is destroyed at the end of the Damage Step.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "64c0db322888788c6103976c",
+        "dlRelease": "2023-08-01"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a526ce",
+      "name": "Imitation",
+      "cardType": "Spell",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "extraDeck": false,
+      "attribute": null,
+      "level": null,
+      "race": "Normal",
+      "atk": null,
+      "def": null,
+      "desc": "Target 1 Token in the Monster Zone; destroy it, and if you do, Special Summon 1 \"Mask Token\" (Spellcaster-Type/DARK/Level 1/ATK ?/DEF ?) with the same ATK and DEF to your opponent's field. Then, inflict damage to your opponent equal to half its ATK.",
+      "dlLimit": "Forbidden",
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a526ce",
+        "dlRelease": "2020-07-28"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a52877",
+      "name": "Kiteroid",
+      "cardType": "Monster",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "WIND",
+      "level": 1,
+      "race": "Machine",
+      "atk": 200,
+      "def": 400,
+      "desc": "During damage calculation, if your opponent's monster attacks directly (Quick Effect): You can discard this card; you take no battle damage from that battle. During damage calculation, if your opponent's monster attacks directly (Quick Effect): You can banish this card from your Graveyard; you take no battle damage from that battle.",
+      "dlLimit": "Limited 2",
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a52877",
+        "dlRelease": "2019-11-16"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aba0e24f2d54a52a30",
+      "name": "Mach Synchron",
+      "cardType": "Monster",
+      "type": "Tuner Monster",
+      "frameType": "effect",
+      "extraDeck": false,
+      "attribute": "WIND",
+      "level": 1,
+      "race": "Machine",
+      "atk": 0,
+      "def": 0,
+      "desc": "Once per turn, during the End Phase, if this card is in the Graveyard because it was sent there this turn as Synchro Material: You can target 1 other monster in your Graveyard, that was used as material for that Synchro Summon; add it to your hand.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aba0e24f2d54a52a30",
+        "dlRelease": "2016-11-17"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a5312e",
+      "name": "Playmaker",
+      "cardType": "Monster",
+      "type": "XYZ Monster",
+      "frameType": "xyz",
+      "extraDeck": true,
+      "attribute": "EARTH",
+      "level": 5,
+      "race": "Warrior",
+      "atk": 2600,
+      "def": 2500,
+      "desc": "3 Level 5 monsters\nIf this card is Special Summoned: Change all face-down Defense Position monsters on the field to face-up Attack Position. (Flip monsters' effects are not activated at this time.) At the end of the Damage Step, if this card attacked a monster: You can detach 1 material from this card, then target 1 monster your opponent controls with the highest ATK (your choice, if tied); this card can attack again in a row, on that monster.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a5312e",
+        "dlRelease": "2020-10-31"
+      }
+    },
+    {
+      "id": "dlx-60c2b3aca0e24f2d54a534cf",
+      "name": "Satellite Laser Balsam",
+      "cardType": "Monster",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "extraDeck": true,
+      "attribute": "LIGHT",
+      "level": 8,
+      "race": "Machine",
+      "atk": 0,
+      "def": 2000,
+      "desc": "\"Satellite Cannon\" + \"Satellite Cannon\" + \"Satellite Cannon\"\nMust be Fusion Summoned. Once per turn, during your End Phase: This cards gains 3000 ATK. If this card attacks, this increased ATK returns to 0, after damage calculation. If this cards attacks a Defense Position monster, inflict piercing battle damage.",
+      "dlLimit": null,
+      "source": {
+        "site": "duellinksmeta.com",
+        "dlmId": "60c2b3aca0e24f2d54a534cf",
+        "dlRelease": "2021-01-31"
+      }
+    }
+  ]
+}
