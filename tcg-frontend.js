@@ -939,8 +939,10 @@ async function importDeckFromTextPrompt(buttonEl = null) {
             side: await hydrateDeckSectionFromText(parsed.side.join('\n'))
         };
         renderDeckBuilder();
-        setDeckCardFeedback('Deck text imported.', 'success');
-        addNotification('Deck text list imported.', 'success');
+        if (!reportUnresolvedImport(deckBuilder, 'Deck text imported')) {
+            setDeckCardFeedback('Deck text imported.', 'success');
+            addNotification('Deck text list imported.', 'success');
+        }
     } catch (error) {
         setDeckCardFeedback('Failed to import deck text.');
         addNotification('Failed to import deck text list.', 'warning');
@@ -1279,8 +1281,45 @@ async function isDuelLinksExclusiveCard(name) {
     }
 }
 
+// A card lookup answers one of three ways: a card, a 404 (the catalog doesn't
+// have it, so retrying can't help), or a failure (5xx or a dropped request) that
+// says nothing about the card. Only the last is retried, once, and it throws a
+// CardLookupError so callers can tell it from "not found".
+class CardLookupError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'CardLookupError';
+        this.transient = true;
+    }
+}
+
+async function fetchCardResponse(url) {
+    let lastProblem = 'Card lookup failed';
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+            const response = await fetch(url);
+            if (response.status < 500) return response;
+            lastProblem = `Card lookup failed (${response.status})`;
+        } catch (error) {
+            lastProblem = 'Card lookup request failed';
+        }
+    }
+    throw new CardLookupError(lastProblem);
+}
+
+function isCardLookupError(error) {
+    return Boolean(error && error.transient === true);
+}
+
+async function fetchCardDataByPasscode(passcode) {
+    const response = await fetchCardResponse(`${YGO_CARD_API_URL}?id=${encodeURIComponent(passcode)}`);
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data?.data?.[0] || null;
+}
+
 async function fetchCardDataByExactName(name, game) {
-    const response = await fetch(`${YGO_CARD_API_URL}?name=${encodeURIComponent(name)}${cardLookupGameParam(game)}`);
+    const response = await fetchCardResponse(`${YGO_CARD_API_URL}?name=${encodeURIComponent(name)}${cardLookupGameParam(game)}`);
     if (!response.ok) return null;
     const data = await response.json();
     return data?.data?.[0] || null;
@@ -1292,7 +1331,9 @@ async function fetchCardDataByExactName(name, game) {
 // (substring match) and picking the case-insensitive exact match recovers
 // those instead of leaving the card's type unresolved.
 async function fetchCardDataByFuzzyName(name, game) {
-    const response = await fetch(`${YGO_CARD_API_URL}?fname=${encodeURIComponent(name)}${cardLookupGameParam(game)}`);
+    // num=200 is the API's cap. The default of 20 can push a case only match off
+    // the end of a busy substring such as "kuriboh".
+    const response = await fetchCardResponse(`${YGO_CARD_API_URL}?fname=${encodeURIComponent(name)}&num=200${cardLookupGameParam(game)}`);
     if (!response.ok) return null;
     const data = await response.json();
     const cards = Array.isArray(data?.data) ? data.data : [];
@@ -1313,7 +1354,11 @@ async function fetchDetailedCardByName(cardName, game = getSelectedDecklistGame(
         return detailedCardInfoCache.get(cacheKey);
     }
 
-    const card = (await fetchCardDataByExactName(normalized, game)) || (await fetchCardDataByFuzzyName(normalized, game));
+    // A saved name that is all digits is a passcode left behind by a .ydk import.
+    // The server resolves alternate art ids on id=, so ask it that way.
+    const card = isNumericPasscodeToken(normalized)
+        ? await fetchCardDataByPasscode(normalized)
+        : (await fetchCardDataByExactName(normalized, game)) || (await fetchCardDataByFuzzyName(normalized, game));
     if (!card) {
         throw new Error('Card not found');
     }
@@ -1416,6 +1461,24 @@ async function validateDecklistLegality(payload) {
     }
 
     return { valid: errors.length === 0, errors, warnings };
+}
+
+// After an import, names the tokens that didn't resolve (once each) in the
+// feedback line and a warning toast. Returns true when it reported any.
+function reportUnresolvedImport(builder, importedLabel) {
+    const misses = [];
+    ['main', 'extra', 'side'].forEach((section) => {
+        (builder?.[section] || []).forEach((card) => {
+            if (card?.unresolved && !misses.includes(card.name)) misses.push(card.name);
+        });
+    });
+    if (misses.length === 0) return false;
+
+    const list = misses.join(', ');
+    const noun = misses.length === 1 ? 'card' : 'cards';
+    setDeckCardFeedback(`${importedLabel}. ${misses.length} ${noun} not found, kept as typed: ${list}`);
+    addNotification(`${misses.length} ${noun} not found in the card database: ${list}`, 'warning');
+    return true;
 }
 
 function setDeckCardFeedback(message, type = 'error') {
@@ -1624,7 +1687,7 @@ async function fetchCardByName(cardName, game = getSelectedDecklistGame()) {
         return cardLookupCache.get(cacheKey);
     }
 
-    const response = await fetch(`${YGO_CARD_API_URL}?name=${encodeURIComponent(normalized)}${cardLookupGameParam(game)}`);
+    const response = await fetchCardResponse(`${YGO_CARD_API_URL}?name=${encodeURIComponent(normalized)}${cardLookupGameParam(game)}`);
     if (!response.ok) {
         throw new Error('Card not found');
     }
@@ -1656,7 +1719,7 @@ async function fetchCardByPasscode(passcode) {
         return cardLookupCache.get(cacheKey);
     }
 
-    const response = await fetch(`${YGO_CARD_API_URL}?id=${encodeURIComponent(normalized)}`);
+    const response = await fetchCardResponse(`${YGO_CARD_API_URL}?id=${encodeURIComponent(normalized)}`);
     if (!response.ok) {
         throw new Error('Card not found by passcode');
     }
@@ -1696,7 +1759,9 @@ async function hydrateDeckSectionFromText(deckText, game = getSelectedDecklistGa
             }
             return await fetchCardByName(token, game);
         } catch (error) {
-            return { name: token, imageUrl: '' };
+            // Kept as typed so the player's list isn't silently shortened, but
+            // flagged so the import can say which tokens didn't resolve.
+            return { name: token, imageUrl: '', unresolved: true };
         }
     }));
 
@@ -1736,13 +1801,14 @@ function renderDecklistTextCardRows(groupedCards) {
     `).join('');
 }
 
-function renderDecklistTextSubgroup(title, groupedCards) {
+function renderDecklistTextSubgroup(title, groupedCards, hint = '') {
     if (!groupedCards || groupedCards.length === 0) return '';
     const total = groupedCards.reduce((sum, card) => sum + card.quantity, 0);
 
     return `
         <div class="decklist-text-subgroup">
             <h4>${escapeHtml(title)} (${total})</h4>
+            ${hint ? `<p class="decklist-text-hint">${escapeHtml(hint)}</p>` : ''}
             <div class="decklist-text-list">${renderDecklistTextCardRows(groupedCards)}</div>
         </div>
     `;
@@ -1760,23 +1826,38 @@ function groupDeckTextForDisplay(deckText) {
 // fetchDetailedCardByName cache the banlist validator and deck stats warm.
 async function groupMainDeckByType(deckText, game) {
     const grouped = groupDeckTextForDisplay(deckText);
-    const buckets = { monster: [], spell: [], trap: [], unresolved: [] };
+    const buckets = { monster: [], spell: [], trap: [], notFound: [], retry: [] };
 
-    await Promise.all(grouped.map(async (card) => {
+    const resolved = await Promise.all(grouped.map(async (card) => {
         try {
             const detailed = await fetchDetailedCardByName(card.name, game);
             // frameType is a clean single token ("spell", "trap", "normal", "synchro", ...) --
             // unlike the free-text "type" string, it needs no substring guessing.
             const frameType = String(detailed?.frameType || '').toLowerCase();
-            if (frameType === 'spell') buckets.spell.push(card);
-            else if (frameType === 'trap') buckets.trap.push(card);
-            else buckets.monster.push(card);
+            const bucket = frameType === 'spell' ? 'spell' : frameType === 'trap' ? 'trap' : 'monster';
+            // A saved passcode shows as the card it belongs to, not as a number.
+            const name = isNumericPasscodeToken(card.name) && detailed?.name ? detailed.name : card.name;
+            return { bucket, card: { ...card, name } };
         } catch (error) {
-            // Genuinely unresolvable (not in the local card DB) -- keep it out of
-            // Monsters rather than silently mislabeling a Spell/Trap as one.
-            buckets.unresolved.push(card);
+            // A 404 means the catalog really doesn't have it. Anything else
+            // (5xx, dropped request after one retry) says nothing about the card,
+            // so it gets its own group instead of being called missing.
+            return { bucket: isCardLookupError(error) ? 'retry' : 'notFound', card };
         }
     }));
+
+    // Merge rows that ended up with the same name (several alternate art
+    // passcodes of one card, or a passcode next to its typed name).
+    resolved.forEach(({ bucket, card }) => {
+        const existing = buckets[bucket].find((entry) => entry.name === card.name);
+        if (existing) {
+            existing.quantity += card.quantity;
+            if (!existing.imageUrl && card.imageUrl) existing.imageUrl = card.imageUrl;
+        } else {
+            buckets[bucket].push({ ...card });
+        }
+    });
+    Object.values(buckets).forEach((list) => list.sort((x, y) => x.name.localeCompare(y.name)));
 
     return buckets;
 }
@@ -1793,7 +1874,8 @@ async function renderDecklistMainDeckTextSection(deckText, game) {
             ${renderDecklistTextSubgroup('Monsters', buckets.monster)}
             ${renderDecklistTextSubgroup('Spells', buckets.spell)}
             ${renderDecklistTextSubgroup('Traps', buckets.trap)}
-            ${renderDecklistTextSubgroup('Unresolved', buckets.unresolved)}
+            ${renderDecklistTextSubgroup('Not in our card database', buckets.notFound, 'Check the spelling, or the card may be newer than our catalog.')}
+            ${renderDecklistTextSubgroup('Card info unavailable', buckets.retry, "Couldn't load card info, refresh to retry.")}
         </div>
     `;
 }
@@ -5601,8 +5683,10 @@ if (decklistYdkFileInput) {
                 side: await hydrateDeckSectionFromText(parsed.side.join('\n'))
             };
             renderDeckBuilder();
-            setDeckCardFeedback(`Imported ${file.name}`, 'success');
-            addNotification(`Imported deck from ${file.name}.`, 'success');
+            if (!reportUnresolvedImport(deckBuilder, `Imported ${file.name}`)) {
+                setDeckCardFeedback(`Imported ${file.name}`, 'success');
+                addNotification(`Imported deck from ${file.name}.`, 'success');
+            }
         } catch (error) {
             setDeckCardFeedback('Failed to import .ydk file.');
             addNotification('Failed to import .ydk file.', 'warning');

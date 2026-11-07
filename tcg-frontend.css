@@ -830,6 +830,12 @@ p {
     color: var(--text-secondary);
 }
 
+.decklist-text-hint {
+    margin: 0 0 0.35rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
 .decklist-text-list {
     display: flex;
     flex-direction: column;
