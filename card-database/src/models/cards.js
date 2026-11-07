@@ -11,6 +11,49 @@
  */
 const { getDb } = require('../db');
 
+// Lazy lookup maps for the two ways a decklist can name a card that an exact
+// query misses: an alternate art passcode (only listed inside card_images) and
+// a spelling variant of the name (case, quotes, dashes, "and" for "&"). Built
+// on the first miss, not at require time, and dropped whenever the catalog is
+// written, so a refresh import is picked up. Both are in memory only.
+let altImageMap = null;
+let normalizedNameMap = null;
+
+function normalizeName(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[‘’‛ʼ]/g, "'")
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[‐-―−]/g, '-')
+    .replace(/"/g, '')
+    .replace(/\s*&\s*/g, ' and ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildLookupMaps() {
+  if (altImageMap && normalizedNameMap) return;
+  const alt = new Map();
+  const names = new Map();
+  const rows = getDb().prepare('SELECT card_id, name, images FROM cards').all();
+  for (const row of rows) {
+    const key = normalizeName(row.name);
+    if (key) {
+      if (!names.has(key)) names.set(key, []);
+      names.get(key).push(row.card_id);
+    }
+    for (const image of JSON.parse(row.images || '[]')) {
+      const imageId = Number(image.imageId);
+      if (Number.isFinite(imageId) && imageId !== row.card_id && !alt.has(imageId)) {
+        alt.set(imageId, row.card_id);
+      }
+    }
+  }
+  altImageMap = alt;
+  normalizedNameMap = names;
+}
+
 function rowToCard(row) {
   if (!row) return null;
   return {
@@ -67,6 +110,8 @@ const upsertSql = `
 // Bulk upsert used by the import script. Wrapped in one transaction per batch
 // for speed -- without it, ~13k individual auto-commits takes minutes instead of seconds.
 function upsertMany(cards) {
+  altImageMap = null;
+  normalizedNameMap = null;
   const db = getDb();
   const stmt = db.prepare(upsertSql);
   const now = new Date().toISOString();
@@ -164,7 +209,26 @@ function findByQuery({ id, name, fname, archetype, type, attribute, race, level,
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
   const sql = `SELECT * FROM cards ${where} ORDER BY card_id ASC LIMIT ? OFFSET ?`;
   const rows = getDb().prepare(sql).all(...params, num, offset);
-  return rows.map(rowToCard);
+  if (rows.length > 0) return rows.map(rowToCard);
+
+  // Exact miss on a lone id= or name= lookup: try the alternate art map or the
+  // normalized name map. The exact match above always wins first, and a name
+  // that normalizes to more than one card stays a miss rather than a guess.
+  if (clauses.length === 1 && offset === 0) {
+    if (id !== undefined) {
+      buildLookupMaps();
+      const mainId = altImageMap.get(id);
+      const card = mainId === undefined ? null : findByCardId(mainId);
+      return card ? [card] : [];
+    }
+    if (name) {
+      buildLookupMaps();
+      const ids = normalizedNameMap.get(normalizeName(name)) || [];
+      const card = ids.length === 1 ? findByCardId(ids[0]) : null;
+      return card ? [card] : [];
+    }
+  }
+  return [];
 }
 
 // Used by the image downloader -- every card's images array, all in memory

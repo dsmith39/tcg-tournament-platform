@@ -20,6 +20,61 @@ const { resetRateLimiters } = require('../server/security');
 let app;
 let dynaliteServer;
 
+// Catalog rows for the D012 tests. Names, passcodes, types and image ids are
+// YGOPRODeck's (checked against the Yu-Gi-Oh team's cached YGOPRODeck responses,
+// 2026-11-07). Alternate art ids live only in `images`, exactly as the import
+// stores them. The two "QA Twin" rows are made up on purpose: their names
+// normalize to the same key, so a normalized lookup has to refuse them.
+function seedCard(fields) {
+  return {
+    description: '',
+    atk: null,
+    def: null,
+    level: null,
+    race: null,
+    attribute: null,
+    archetype: null,
+    scale: null,
+    linkval: null,
+    linkmarkers: [],
+    banlistInfo: null,
+    sets: [],
+    prices: null,
+    ...fields,
+    images: fields.images.map((imageId) => ({ imageId }))
+  };
+}
+
+const UNRESOLVED_CARDS_SEED = [
+  seedCard({
+    cardId: 46986414, name: 'Dark Magician', type: 'Normal Monster', frameType: 'normal',
+    race: 'Spellcaster', attribute: 'DARK', level: 7, atk: 2500, def: 2100,
+    images: [46986414, 46986415, 46986416, 46986417, 46986418, 46986419, 36996508, 46986420, 46986421]
+  }),
+  seedCard({
+    cardId: 14558127, name: 'Ash Blossom & Joyous Spring', type: 'Tuner Monster', frameType: 'effect',
+    race: 'Zombie', attribute: 'FIRE', level: 3, atk: 0, def: 1800,
+    images: [14558127, 14558128]
+  }),
+  seedCard({
+    cardId: 23434538, name: 'Maxx "C"', type: 'Effect Monster', frameType: 'effect',
+    race: 'Insect', attribute: 'EARTH', level: 2, atk: 500, def: 200,
+    images: [23434538]
+  }),
+  seedCard({
+    cardId: 18144507, name: "Harpie's Feather Duster", type: 'Spell Card', frameType: 'spell',
+    race: 'Normal', images: [18144507, 18144506]
+  }),
+  seedCard({
+    cardId: 900000001, name: 'QA Twin "Echo"', type: 'Effect Monster', frameType: 'effect',
+    images: [900000001]
+  }),
+  seedCard({
+    cardId: 900000002, name: 'QA Twin Echo', type: 'Effect Monster', frameType: 'effect',
+    images: [900000002]
+  })
+];
+
 async function registerUser(client, { username, email, password }) {
   // Shared helper keeps auth setup compact across test cases.
   const response = await client
@@ -77,6 +132,11 @@ test.before(async () => {
     sets: [],
     prices: null
   }]);
+
+  // Cards for the "unresolved cards" tests (board D012). Seeded here, before any
+  // request, because the fix builds its alternate art and normalized name maps
+  // once per process; seeding later could land after the maps are built.
+  cardsRepo.upsertMany(UNRESOLVED_CARDS_SEED);
 });
 
 test.after(async () => {
@@ -882,7 +942,8 @@ test('card database: health endpoint reports card count', async () => {
 
   assert.equal(response.status, 200);
   assert.equal(response.body.ok, true);
-  assert.equal(response.body.cards, 1);
+  // Blue-Eyes White Dragon plus the D012 seed.
+  assert.equal(response.body.cards, 1 + UNRESOLVED_CARDS_SEED.length);
 });
 
 // ---------------------------------------------------------------------------
@@ -1051,4 +1112,131 @@ test('dl exclusives: the checked in list is well formed and matches the test fix
       assert.deepEqual(real[field], fixtureCard[field], `${fixtureCard.name}.${field} drifted from the fixture`);
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+// Unresolved decklist cards (board D012). Memo:
+// ops/ceo-memos/2026-11-07-unresolved-cards.md (gitignored).
+//
+// Server spec items 1 (alternate art passcodes on id=) and 2 (normalized
+// name retry, single match only). The cards come from UNRESOLVED_CARDS_SEED
+// at the top of this file.
+// ---------------------------------------------------------------------------
+async function lookup(query) {
+  return request(app).get(`/api/v7/cardinfo.php?${query}`);
+}
+
+function assertSingleCard(response, { id, name }, label) {
+  assert.equal(response.status, 200, `${label}: expected 200, got ${response.status}`);
+  assert.equal(response.body.data.length, 1, `${label}: expected exactly one card`);
+  assert.equal(response.body.data[0].id, id, `${label}: wrong card id`);
+  assert.equal(response.body.data[0].name, name, `${label}: wrong card name`);
+}
+
+test('unresolved cards: an alternate art passcode on id= returns the main card', async () => {
+  // Control: the main passcode works today.
+  assertSingleCard(await lookup('id=46986414'), { id: 46986414, name: 'Dark Magician' }, 'id=46986414');
+
+  for (const [altId, main] of [
+    ['36996508', { id: 46986414, name: 'Dark Magician' }],
+    ['46986415', { id: 46986414, name: 'Dark Magician' }],
+    ['46986421', { id: 46986414, name: 'Dark Magician' }],
+    ['14558128', { id: 14558127, name: 'Ash Blossom & Joyous Spring' }],
+    ['18144506', { id: 18144507, name: "Harpie's Feather Duster" }]
+  ]) {
+    const response = await lookup(`id=${altId}`);
+    assertSingleCard(response, main, `id=${altId}`);
+    // The answer is the main card, alternate art included, not a copy keyed by the alt id.
+    assert.ok(
+      response.body.data[0].card_images.some((image) => String(image.id) === altId),
+      `id=${altId}: card_images should still list the alternate art`
+    );
+  }
+});
+
+test('unresolved cards: an id that is no card and no alternate art still 404s', async () => {
+  // Control so this can't pass just because every id lookup is broken.
+  assertSingleCard(await lookup('id=36996508'), { id: 46986414, name: 'Dark Magician' }, 'control id=36996508');
+
+  for (const id of ['99999999', '46986413', '1']) {
+    const response = await lookup(`id=${id}`);
+    assert.equal(response.status, 404, `id=${id} should 404`);
+  }
+});
+
+test('unresolved cards: an exact name miss retries on a normalized name', async () => {
+  const darkMagician = { id: 46986414, name: 'Dark Magician' };
+  const maxx = { id: 23434538, name: 'Maxx "C"' };
+  const blueEyes = { id: 89631139, name: 'Blue-Eyes White Dragon' };
+  const harpie = { id: 18144507, name: "Harpie's Feather Duster" };
+
+  // Control: exact names already work.
+  assertSingleCard(await lookup(`name=${encodeURIComponent('Maxx "C"')}`), maxx, 'exact Maxx "C"');
+
+  const cases = [
+    // case only
+    ['dark magician', darkMagician],
+    ['DARK MAGICIAN', darkMagician],
+    // whitespace collapsed and trimmed
+    ['  Dark   Magician ', darkMagician],
+    // double quotes stripped: the pasted list spelling from the memo
+    ['Maxx C', maxx],
+    ['maxx c', maxx],
+    // curly double quotes
+    ['Maxx “C”', maxx],
+    // curly apostrophe
+    ['Harpie’s Feather Duster', harpie],
+    // en dash and em dash to hyphen
+    ['Blue–Eyes White Dragon', blueEyes],
+    ['blue—eyes white dragon', blueEyes]
+  ];
+
+  for (const [input, expected] of cases) {
+    assertSingleCard(await lookup(`name=${encodeURIComponent(input)}`), expected, `name=${JSON.stringify(input)}`);
+  }
+});
+
+test('unresolved cards: "and" finds an "&" name when that is the only match', async () => {
+  const ash = { id: 14558127, name: 'Ash Blossom & Joyous Spring' };
+  assertSingleCard(await lookup(`name=${encodeURIComponent('Ash Blossom & Joyous Spring')}`), ash, 'exact');
+  assertSingleCard(await lookup(`name=${encodeURIComponent('Ash Blossom and Joyous Spring')}`), ash, 'and');
+  assertSingleCard(await lookup(`name=${encodeURIComponent('ash blossom & joyous spring')}`), ash, 'case only');
+});
+
+test('unresolved cards: a normalized name that matches two cards returns 404, not a guess', async () => {
+  // Exact names still pick their own card even though they share a normalized key.
+  assertSingleCard(await lookup(`name=${encodeURIComponent('QA Twin "Echo"')}`), { id: 900000001, name: 'QA Twin "Echo"' }, 'exact quoted twin');
+  assertSingleCard(await lookup(`name=${encodeURIComponent('QA Twin Echo')}`), { id: 900000002, name: 'QA Twin Echo' }, 'exact plain twin');
+
+  // Both twins normalize to "qa twin echo", so a non exact spelling is ambiguous.
+  for (const input of ['qa twin echo', 'QA  TWIN  ECHO', 'qa twin “echo”']) {
+    const response = await lookup(`name=${encodeURIComponent(input)}`);
+    assert.equal(response.status, 404, `name=${JSON.stringify(input)} matches two cards and must 404`);
+  }
+
+  // Control: the normalized retry exists, so the 404s above are the
+  // single match rule and not a missing feature.
+  assertSingleCard(await lookup('name=maxx%20c'), { id: 23434538, name: 'Maxx "C"' }, 'control maxx c');
+});
+
+test('unresolved cards: a name that is not in the catalog still 404s', async () => {
+  for (const input of ['Definitely Not A Real Card', 'Maxx D', 'Dark Magician Girl']) {
+    const response = await lookup(`name=${encodeURIComponent(input)}`);
+    assert.equal(response.status, 404, `name=${JSON.stringify(input)} should 404`);
+  }
+  // Control: same shape of request, a normalized hit.
+  assertSingleCard(await lookup('name=dark%20magician'), { id: 46986414, name: 'Dark Magician' }, 'control dark magician');
+});
+
+test('unresolved cards: normalizing catalog names leaves Duel Links exclusives as they were', async () => {
+  // Exclusives still answer only for game=duel-links.
+  assert.equal((await lookup('name=Kiteroid&game=duel-links')).status, 200);
+  assert.equal((await lookup('name=kiteroid')).status, 404);
+  assert.equal((await lookup('name=Kiteroid&game=ygo-tcg')).status, 404);
+
+  // A catalog card found by a normalized name in a Duel Links deck is the
+  // catalog card, not an exclusive.
+  const maxx = await lookup('name=maxx%20c&game=duel-links');
+  assertSingleCard(maxx, { id: 23434538, name: 'Maxx "C"' }, 'maxx c for duel links');
+  assert.equal(maxx.body.data[0].dl_exclusive, undefined);
 });
